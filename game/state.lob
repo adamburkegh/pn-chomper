@@ -1,0 +1,194 @@
+#Game State
+
+The game state holds everything that changes during play: where the chompers
+are (the player marking), where the ghosts are (the ghost marking), the set
+of places that still have dots, the score, and the number of lives remaining.
+
+Chompers and ghosts are both Petri net tokens but tracked in separate markings.
+This keeps the net semantics clean — each population fires independently — and
+makes it easy to check collisions (a place where a chomper and ghost both have
+tokens is a collision).
+
+    interface GameState {
+      gn: GameNet;
+      chompers: Marking;     // player's tokens
+      ghosts: Marking;       // ghost tokens
+      dots: Set<string>;     // place ids that still have dots
+      score: number;
+      lives: number;
+    }
+
+    function initState(gn: GameNet, lives = 3): GameState {
+      const chompers = emptyMarking();
+      markingAddTokens(chompers, gn.playerStart, 1);
+
+      const ghosts = emptyMarking();
+      for (const spawnId of gn.ghostSpawns) {
+        const outgoing = outputArcs(gn.net, spawnId);
+        if (outgoing.length > 0)
+          markingAddTokens(ghosts, outgoing[0].target, 1);
+      }
+
+      const dots = new Set(
+        [...gn.net.places.values()]
+          .filter(p => (p as GamePlace).hasDot)
+          .map(p => p.id)
+      );
+
+      return { gn, chompers, ghosts, dots, score: 0, lives };
+    }
+
+##Dot Eating and Scoring
+
+When a chomper enters a place that has a dot, the dot is removed and the
+score increases. This happens as a side-effect of firing a transition — the
+arrival place is checked after each fire.
+
+    function eatDots(state: GameState): void {
+      for (const [placeId, count] of state.chompers) {
+        if (count > 0 && state.dots.has(placeId)) {
+          state.dots.delete(placeId);
+          state.score += 10;
+        }
+      }
+    }
+
+##Collision Detection
+
+Chompers and ghosts are two token colours in the same net — a coloured Petri
+net in all but name. A collision occurs when they share a place. Rather than
+a global reset, the ghost consumes exactly one chomper token from each shared
+place. Only when no chomper tokens remain does the player lose a life and all
+tokens reset to starting positions.
+
+This makes splitting tactically meaningful: two chompers grant resilience, as
+a ghost can only eat one per encounter. It also keeps the token semantics
+consistent — removal is always a consumption event.
+
+    function hasCollision(state: GameState): boolean {
+      for (const [placeId, count] of state.chompers) {
+        if (count > 0 && (state.ghosts.get(placeId) ?? 0) > 0)
+          return true;
+      }
+      return false;
+    }
+
+    function resolveCollisions(state: GameState): void {
+      const eaten: string[] = [];
+      for (const [placeId, count] of state.chompers) {
+        if (count > 0 && (state.ghosts.get(placeId) ?? 0) > 0)
+          eaten.push(placeId);
+      }
+      if (eaten.length === 0) return;
+      for (const placeId of eaten)
+        markingRemoveTokens(state.chompers, placeId, 1);
+      const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
+      if (total > 0) return;
+      state.lives -= 1;
+      state.chompers.clear();
+      markingAddTokens(state.chompers, state.gn.playerStart, 1);
+      state.ghosts.clear();
+      for (const spawnId of state.gn.ghostSpawns) {
+        const outgoing = outputArcs(state.gn.net, spawnId);
+        if (outgoing.length > 0)
+          markingAddTokens(state.ghosts, outgoing[0].target, 1);
+      }
+    }
+
+##Win and Lose Conditions
+
+The player wins when all dots have been eaten. The player loses when lives
+reach zero.
+
+    function isWon(state: GameState): boolean {
+      return state.dots.size === 0;
+    }
+
+    function isLost(state: GameState): boolean {
+      return state.lives <= 0;
+    }
+
+The examples below use the circuit map as a representative multi-place net.
+
+    const _crossGn = makeCircuitMap();
+    const _s0 = initState(_crossGn);
+
+    function _testEatDot(): { dotsGone: boolean; score: number } {
+      const st = initState(_crossGn);
+      markingAddTokens(st.chompers, 'nw', 1);
+      markingRemoveTokens(st.chompers, 'depot', 1);
+      eatDots(st);
+      return { dotsGone: !st.dots.has('nw'), score: st.score };
+    }
+
+    function _testCollision(): boolean {
+      const sc = initState(_crossGn);
+      markingAddTokens(sc.ghosts, 'depot', 1);
+      return hasCollision(sc);
+    }
+
+    function _testEatOneChomper(): { upperGone: boolean; lowerSurvived: boolean; livesUnchanged: boolean } {
+      const st = initState(makeSplitMap());
+      st.chompers.clear();
+      markingAddTokens(st.chompers, 'upper', 1);
+      markingAddTokens(st.chompers, 'lower', 1);
+      st.ghosts.clear();
+      markingAddTokens(st.ghosts, 'upper', 1);
+      resolveCollisions(st);
+      return {
+        upperGone:      tokenCount(st.chompers, 'upper') === 0,
+        lowerSurvived:  tokenCount(st.chompers, 'lower') === 1,
+        livesUnchanged: st.lives === 3,
+      };
+    }
+
+    function _testLastChomperEaten(): { livesLost: boolean; resetToStart: boolean } {
+      const st = initState(_crossGn);
+      st.ghosts.clear();
+      markingAddTokens(st.ghosts, 'depot', 1);
+      resolveCollisions(st);
+      return {
+        livesLost:    st.lives === 2,
+        resetToStart: tokenCount(st.chompers, 'depot') === 1,
+      };
+    }
+
+~example
+    tokenCount(_s0.chompers, 'depot') === 1
+    _s0.dots.has('nw')
+    _s0.dots.has('nn')
+    _s0.dots.has('ne')
+    _s0.dots.has('sw')
+    !_s0.dots.has('depot')
+    _s0.score === 0
+    _s0.lives === 3
+    !isWon(_s0)
+    !isLost(_s0)
+
+---
+
+#Tests
+
+##eating a dot increases score and removes dot
+    _testEatDot().dotsGone === true
+    _testEatDot().score === 10
+
+##collision detected when chomper and ghost share a place
+    _testCollision() === true
+
+##no collision when they differ
+    hasCollision(_s0) === false
+
+##split: ghost eats one chomper, other survives, no life lost
+    _testEatOneChomper().upperGone
+    _testEatOneChomper().lowerSurvived
+    _testEatOneChomper().livesUnchanged
+
+##last chomper eaten loses a life and resets to start
+    _testLastChomperEaten().livesLost
+    _testLastChomperEaten().resetToStart
+
+#References
+    #Petri Net
+    #Petri Marking
+    #Game Map

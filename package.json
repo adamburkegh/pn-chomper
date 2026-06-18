@@ -1,0 +1,18 @@
+{
+  "name": "pn-pacman",
+  "version": "1.0.0",
+  "description": "This is a browser game inspired by arcade classics like Pac-Man. The maps are Petri nets.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.22.4"
+  }
+}

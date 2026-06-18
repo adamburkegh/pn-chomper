@@ -1,0 +1,154 @@
+#Petri Net
+
+A Petri net is a directed bipartite graph of Places and Transitions connected
+by Arcs. This module defines the static structure — the map — without any
+notion of current token positions. A separate marking module tracks which
+places hold tokens at any moment.
+
+Places are the nodes where tokens reside. In the game they are rooms. Each
+place has a unique id, a human label, and a position for rendering.
+
+Transitions are the events that consume tokens from input places and produce
+tokens in output places. In the game they are doorways. A transition is
+enabled when every input place holds at least one token (for weight-1 arcs).
+
+Arcs connect places to transitions (input arcs) or transitions to places
+(output arcs). Each arc has an integer weight (default 1) determining how
+many tokens are consumed or produced.
+
+    interface Place {
+      readonly id: string;
+      label: string;
+      x: number;
+      y: number;
+    }
+
+    interface Transition {
+      readonly id: string;
+      label: string;
+      x: number;
+      y: number;
+    }
+
+    interface Arc {
+      readonly id: string;
+      readonly source: string;
+      readonly target: string;
+      readonly weight: number;
+    }
+
+    interface PetriNet {
+      places: Map<string, Place>;
+      transitions: Map<string, Transition>;
+      arcs: Arc[];
+    }
+
+A net is built with the constructor functions below. They validate that arcs
+connect the correct node kinds (place to transition or transition to place) and
+that referenced ids exist.
+
+    function makeNet(): PetriNet {
+      return { places: new Map(), transitions: new Map(), arcs: [] };
+    }
+
+    function addPlace(
+      net: PetriNet, id: string, label: string, x: number, y: number,
+    ): Place {
+      if (net.places.has(id)) throw new Error(`Place '${id}' already exists`);
+      const p: Place = { id, label, x, y };
+      net.places.set(id, p);
+      return p;
+    }
+
+    function addTransition(
+      net: PetriNet, id: string, label: string, x: number, y: number,
+    ): Transition {
+      if (net.transitions.has(id)) throw new Error(`Transition '${id}' already exists`);
+      const t: Transition = { id, label, x, y };
+      net.transitions.set(id, t);
+      return t;
+    }
+
+    function addArc(
+      net: PetriNet, id: string, source: string, target: string, weight = 1,
+    ): Arc {
+      const srcIsPlace = net.places.has(source);
+      const srcIsTransition = net.transitions.has(source);
+      const tgtIsPlace = net.places.has(target);
+      const tgtIsTransition = net.transitions.has(target);
+      if (!srcIsPlace && !srcIsTransition)
+        throw new Error(`Arc source '${source}' not found`);
+      if (!tgtIsPlace && !tgtIsTransition)
+        throw new Error(`Arc target '${target}' not found`);
+      if (srcIsPlace && tgtIsPlace)
+        throw new Error(`Arc cannot connect two places`);
+      if (srcIsTransition && tgtIsTransition)
+        throw new Error(`Arc cannot connect two transitions`);
+      const arc: Arc = { id, source, target, weight };
+      net.arcs.push(arc);
+      return arc;
+    }
+
+##Queries
+
+Convenience accessors used by the marking and renderer modules.
+
+    function inputArcs(net: PetriNet, transitionId: string): Arc[] {
+      return net.arcs.filter(
+        a => a.target === transitionId && net.places.has(a.source),
+      );
+    }
+
+    function outputArcs(net: PetriNet, transitionId: string): Arc[] {
+      return net.arcs.filter(
+        a => a.source === transitionId && net.places.has(a.target),
+      );
+    }
+
+    function transitionsForPlace(net: PetriNet, placeId: string): Transition[] {
+      const ids = net.arcs.filter(a => a.source === placeId).map(a => a.target);
+      return ids.map(id => net.transitions.get(id)!);
+    }
+
+Here is a small net used by the examples below: one place feeding a
+transition that fans out to two output places (the classic split).
+
+    const _testNet = makeNet();
+    addPlace(_testNet, 'p1', 'Start', 0, 0);
+    addTransition(_testNet, 't1', 'Door', 100, 0);
+    addPlace(_testNet, 'p2', 'Left', 200, -50);
+    addPlace(_testNet, 'p3', 'Right', 200, 50);
+    addArc(_testNet, 'a1', 'p1', 't1');
+    addArc(_testNet, 'a2', 't1', 'p2');
+    addArc(_testNet, 'a3', 't1', 'p3');
+
+    function _throwsOnBadArc(): boolean {
+      try { addArc(_testNet, 'bad', 'p1', 'p2'); return false; }
+      catch { return true; }
+    }
+
+~example
+    _testNet.places.has('p1')
+    _testNet.places.get('p1')!.label === 'Start'
+    _testNet.transitions.has('t1')
+    inputArcs(_testNet, 't1').length === 1
+    inputArcs(_testNet, 't1')[0].source === 'p1'
+    outputArcs(_testNet, 't1').length === 2
+    _throwsOnBadArc()
+
+---
+
+#Tests
+
+##place and transition ids are preserved
+    _testNet.places.get('p1')!.id === 'p1'
+    _testNet.transitions.get('t1')!.id === 't1'
+
+##transitionsForPlace finds downstream transitions
+    transitionsForPlace(_testNet, 'p1').length === 1
+    transitionsForPlace(_testNet, 'p1')[0].id === 't1'
+
+##arc weight defaults to 1
+    inputArcs(_testNet, 't1')[0].weight === 1
+
+#References

@@ -1,0 +1,321 @@
+#Render Canvas
+
+The canvas renderer draws the Petri net game world onto an HTML5 Canvas. It
+is a pure read operation on the game state — it never mutates anything. The
+renderer is called once per animation frame and redraws the entire scene.
+
+The visual vocabulary maps Petri net concepts to game imagery. Places are
+circles; a place with a dot shows a pellet inside, a place with a chomper
+token shows the pac-man arc, a place with a ghost token shows the ghost icon.
+Transitions are rectangles (doorways); enabled ones glow yellow. Arcs are
+drawn as wide corridors with a directional highlight, giving the net a
+proper maze aesthetic.
+
+    interface Renderer {
+      canvas: HTMLCanvasElement;
+      ctx: CanvasRenderingContext2D;
+    }
+
+    function makeRenderer(canvas: HTMLCanvasElement): Renderer {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Cannot get 2D context');
+      return { canvas, ctx };
+    }
+
+    function clearCanvas(r: Renderer): void {
+      r.ctx.fillStyle = '#111';
+      r.ctx.fillRect(0, 0, r.canvas.width, r.canvas.height);
+    }
+
+##Drawing Corridors
+
+Arcs are drawn as wide maze corridors: a dark filled band with a lighter
+centre stripe and a small arrowhead triangle at the target end to indicate
+direction. The corridor is clipped short at both ends so it does not
+overdraw the place circles or transition rectangles.
+
+    function drawCorridor(
+      ctx: CanvasRenderingContext2D,
+      x1: number, y1: number,
+      x2: number, y2: number,
+    ): void {
+      const angle  = Math.atan2(y2 - y1, x2 - x1);
+      const len    = Math.hypot(x2 - x1, y2 - y1);
+      // Adaptive margin/width: short arcs (dense maps) use tighter values
+      const margin = Math.min(28, Math.max(8, len * 0.30));
+      const cw     = Math.min(16, Math.max(4, len * 0.18));
+
+      const sx = x1 + Math.cos(angle) * margin;
+      const sy = y1 + Math.sin(angle) * margin;
+      const ex = x2 - Math.cos(angle) * margin;
+      const ey = y2 - Math.sin(angle) * margin;
+
+      if (len < 20) return;
+
+      // Perpendicular unit vector
+      const px = -Math.sin(angle);
+      const py =  Math.cos(angle);
+
+      // Filled corridor band
+      ctx.beginPath();
+      ctx.moveTo(sx + px * cw, sy + py * cw);
+      ctx.lineTo(ex + px * cw, ey + py * cw);
+      ctx.lineTo(ex - px * cw, ey - py * cw);
+      ctx.lineTo(sx - px * cw, sy - py * cw);
+      ctx.closePath();
+      ctx.fillStyle = '#1e1e1e';
+      ctx.fill();
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Centre highlight stripe
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.strokeStyle = '#2a2a2a';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // Arrowhead at target end
+      const ah = 14;
+      ctx.beginPath();
+      ctx.moveTo(ex + Math.cos(angle) * ah, ey + Math.sin(angle) * ah);
+      ctx.lineTo(ex + px * 7, ey + py * 7);
+      ctx.lineTo(ex - px * 7, ey - py * 7);
+      ctx.closePath();
+      ctx.fillStyle = '#444';
+      ctx.fill();
+    }
+
+##Drawing Places
+
+Places are circles. The colour signals status: dark (empty), pellet visible
+(has dot), chomper present, ghost present. When both a chomper and a ghost
+share a place, the ghost is rendered above the chomper to make the danger
+immediately legible.
+
+    function drawPlace(
+      ctx: CanvasRenderingContext2D,
+      p: Place,
+      hasDot: boolean,
+      chompers: number,
+      ghosts: number,
+      radius = 24,
+    ): void {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fill();
+      ctx.strokeStyle = chompers > 0 ? '#555' : '#333';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      if (hasDot && chompers === 0) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffee88';
+        ctx.fill();
+      }
+
+      // Draw ghosts first (below), chompers on top
+      for (let j = 0; j < ghosts; j++) {
+        const ox = (j - (ghosts - 1) / 2) * 16;
+        // If chompers also present, push ghost to bottom half of circle
+        const oy = chompers > 0 ? 8 : 0;
+        drawGhost(ctx, p.x + ox, p.y + oy, 9);
+      }
+      for (let i = 0; i < chompers; i++) {
+        const ox = (i - (chompers - 1) / 2) * 16;
+        const oy = ghosts > 0 ? -7 : 0;
+        drawChomper(ctx, p.x + ox, p.y + oy, 10);
+      }
+
+      ctx.fillStyle = '#666';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.label, p.x, p.y + radius + 13);
+    }
+
+##Drawing Chompers and Ghosts
+
+    function drawChomper(
+      ctx: CanvasRenderingContext2D,
+      x: number, y: number, r: number,
+    ): void {
+      const mouth = 0.35;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.arc(x, y, r, mouth, Math.PI * 2 - mouth);
+      ctx.closePath();
+      ctx.fillStyle = '#ffe000';
+      ctx.fill();
+    }
+
+    function drawGhost(
+      ctx: CanvasRenderingContext2D,
+      x: number, y: number, r: number,
+    ): void {
+      ctx.beginPath();
+      ctx.arc(x, y - r * 0.2, r, Math.PI, 0);
+      ctx.lineTo(x + r, y + r * 0.8);
+      const steps = 3;
+      for (let i = 0; i < steps; i++) {
+        const cx2 = x + r - (r * 2 / steps) * (i + 0.5);
+        const dir  = i % 2 === 0 ? 1 : -1;
+        ctx.quadraticCurveTo(
+          cx2, y + r * 0.8 + dir * r * 0.4,
+          x + r - (r * 2 / steps) * (i + 1), y + r * 0.8,
+        );
+      }
+      ctx.closePath();
+      ctx.fillStyle = '#cc44ff';
+      ctx.fill();
+    }
+
+##Drawing Transitions
+
+Transitions are colour-coded by structural role. Forks (one input, multiple
+outputs) use orange borders and a ">" chevron icon — the token splits into
+two simultaneous streams. Joins (multiple inputs, one output) use cyan
+borders and a "<" chevron icon — a sync barrier that only fires when all
+input places are occupied. Regular one-to-one transitions keep the existing
+yellow glow when enabled, grey when not.
+
+Classification is computed from arc counts at render time; no extra field is
+needed on the transition record.
+
+    type TransitionKind = 'fork' | 'join' | 'regular';
+
+    function transitionKind(net: PetriNet, id: string): TransitionKind {
+      if (outputArcs(net, id).length > 1) return 'fork';
+      if (inputArcs(net, id).length  > 1) return 'join';
+      return 'regular';
+    }
+
+    function drawTransition(
+      ctx: CanvasRenderingContext2D,
+      t: Transition,
+      enabled: boolean,
+      kind: TransitionKind,
+    ): void {
+      const w = 18, h = 40;
+
+      const palette = {
+        fork:    { bg: enabled ? '#552200' : '#1e0d00', border: enabled ? '#ff8800' : '#cc5500' },
+        join:    { bg: enabled ? '#003344' : '#001520', border: enabled ? '#00ccff' : '#0088bb' },
+        regular: { bg: enabled ? '#554400' : '#1a1a1a', border: enabled ? '#ffe000' : '#444'    },
+      };
+      const { bg, border } = palette[kind];
+
+      ctx.fillStyle = bg;
+      ctx.strokeStyle = border;
+      ctx.lineWidth = enabled ? 3 : (kind === 'regular' ? 1 : 2);
+      ctx.beginPath();
+      ctx.rect(t.x - w / 2, t.y - h / 2, w, h);
+      ctx.fill();
+      ctx.stroke();
+
+      // Chevron icon: ">" fan for fork, "<" merge for join
+      if (kind === 'fork') {
+        ctx.strokeStyle = enabled ? '#ffaa44' : '#995522';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(t.x - 3, t.y - 6);
+        ctx.lineTo(t.x + 4, t.y);
+        ctx.lineTo(t.x - 3, t.y + 6);
+        ctx.stroke();
+      } else if (kind === 'join') {
+        ctx.strokeStyle = enabled ? '#44ddff' : '#006688';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(t.x + 3, t.y - 6);
+        ctx.lineTo(t.x - 4, t.y);
+        ctx.lineTo(t.x + 3, t.y + 6);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = '#666';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(t.label.slice(0, 8), t.x, t.y + h / 2 + 12);
+    }
+
+##Full Scene
+
+    function render(r: Renderer, engine: Engine): void {
+      clearCanvas(r);
+      const { state } = engine;
+      const net = state.gn.net;
+      const ctx = r.ctx;
+      const nodeRadius = state.gn.nodeRadius ?? 24;
+
+      const enabledIds = new Set(
+        engine.phase === 'player' ? playerEnabledTransitions(engine) : []
+      );
+
+      // Draw corridors first (behind everything)
+      for (const arc of net.arcs) {
+        const src = net.places.get(arc.source) ?? net.transitions.get(arc.source);
+        const tgt = net.places.get(arc.target) ?? net.transitions.get(arc.target);
+        if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y);
+      }
+
+      // Transitions
+      for (const t of net.transitions.values()) {
+        drawTransition(ctx, t, enabledIds.has(t.id), transitionKind(net, t.id));
+      }
+
+      // Places (on top of corridors)
+      for (const p of net.places.values()) {
+        const gp = p as GamePlace;
+        drawPlace(
+          ctx, p,
+          gp.hasDot && state.dots.has(p.id),
+          tokenCount(state.chompers, p.id),
+          tokenCount(state.ghosts, p.id),
+          nodeRadius,
+        );
+      }
+
+      // HUD
+      ctx.fillStyle = '#ccc';
+      ctx.font = '15px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Score: ${state.score}   Lives: ${state.lives}`, 12, 24);
+
+      if (engine.phase === 'won') {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, 0, r.canvas.width, r.canvas.height);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffe000';
+        ctx.font = 'bold 64px monospace';
+        ctx.fillText('YOU WIN', r.canvas.width / 2, r.canvas.height / 2 - 10);
+        ctx.fillStyle = '#888';
+        ctx.font = '18px monospace';
+        ctx.fillText('press R to restart', r.canvas.width / 2, r.canvas.height / 2 + 30);
+      }
+      if (engine.phase === 'lost') {
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(0, 0, r.canvas.width, r.canvas.height);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#cc0000';
+        ctx.font = 'bold 80px monospace';
+        ctx.fillText('GAME OVER', r.canvas.width / 2, r.canvas.height / 2 - 16);
+        ctx.fillStyle = '#ff4444';
+        ctx.font = 'bold 28px monospace';
+        ctx.fillText(`${state.lives} ${state.lives === 1 ? 'life' : 'lives'} remaining`, r.canvas.width / 2, r.canvas.height / 2 + 30);
+        ctx.fillStyle = '#666';
+        ctx.font = '18px monospace';
+        ctx.fillText('press R to restart', r.canvas.width / 2, r.canvas.height / 2 + 62);
+      }
+    }
+
+---
+
+#References
+    #Petri Net
+    #Petri Marking
+    #Game Map
+    #Game State
+    #Game Engine

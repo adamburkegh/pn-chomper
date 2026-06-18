@@ -1,0 +1,129 @@
+#Game Engine
+
+The engine coordinates the game loop: it accepts player input (a transition
+id to fire), advances the ghost tokens, checks collisions, eats dots, and
+determines whether the game is over. It is deliberately free of any rendering
+concern — the renderer reads state and draws; the engine mutates state.
+
+Player turns and ghost turns alternate. On a player turn the engine fires one
+transition in the chomper marking. On the ghost turn the engine fires a random
+enabled transition for each ghost token. This creates an autonomous adversary
+whose movement is governed by the same Petri net firing rules as the player.
+
+    type Phase = 'player' | 'ghost' | 'won' | 'lost';
+
+    interface Engine {
+      state: GameState;
+      phase: Phase;
+    }
+
+    function makeEngine(gn: GameNet): Engine {
+      return { state: initState(gn), phase: 'player' };
+    }
+
+##Player Move
+
+The player chooses a transition id. The engine validates that it is enabled
+and that it has at least one chomper token in an input place, then fires it.
+After firing, dots are eaten and collisions checked.
+
+    function playerMove(engine: Engine, transitionId: string): void {
+      if (engine.phase !== 'player') return;
+      const { state } = engine;
+      const net = state.gn.net;
+
+      if (!net.transitions.has(transitionId)) return;
+      if (!isEnabled(net, state.chompers, transitionId)) return;
+
+      state.chompers = fire(net, state.chompers, transitionId);
+      eatDots(state);
+
+      const livesBefore = state.lives;
+      resolveCollisions(state);
+      if (isLost(state)) { engine.phase = 'lost'; return; }
+      if (state.lives < livesBefore) { engine.phase = 'player'; return; }
+
+      if (isWon(state)) { engine.phase = 'won'; return; }
+      engine.phase = 'ghost';
+    }
+
+##Ghost Turn
+
+On the ghost turn, each ghost token fires a randomly chosen enabled transition.
+If no transition is enabled for a ghost token (the ghost is stuck), it stays
+put. After all ghosts move, collisions are rechecked.
+
+    function ghostTurn(engine: Engine): void {
+      if (engine.phase !== 'ghost') return;
+      const { state } = engine;
+      const net = state.gn.net;
+
+      const enabled = enabledTransitions(net, state.ghosts);
+      if (enabled.length > 0) {
+        const pick = enabled[Math.floor(Math.random() * enabled.length)];
+        state.ghosts = fire(net, state.ghosts, pick);
+      }
+
+      resolveCollisions(state);
+      if (isLost(state)) { engine.phase = 'lost'; return; }
+      engine.phase = 'player';
+    }
+
+##Enabled Player Transitions
+
+The UI needs to know which transitions the player can currently choose. A
+transition is choosable when it is enabled in the chomper marking.
+
+    function playerEnabledTransitions(engine: Engine): string[] {
+      return enabledTransitions(engine.state.gn.net, engine.state.chompers);
+    }
+
+A minimal set of engine examples: start on the circuit map, fire the Fork
+transition, check that chompers appear in both arms.
+
+    function _engineOneCycle(): { phase: Phase; chomperAtNw: boolean } {
+      const eng = makeEngine(makeCircuitMap());
+      // Fire 't_fork' — ghost is at 'east', so no collision
+      playerMove(eng, 't_fork');
+      ghostTurn(eng);
+      return {
+        phase: eng.phase,
+        chomperAtNw: tokenCount(eng.state.chompers, 'nw') > 0,
+      };
+    }
+
+    function _invalidMoveIgnored(): boolean {
+      const eng = makeEngine(makeCircuitMap());
+      playerMove(eng, 'no-such-transition');
+      return eng.phase === 'player';
+    }
+
+    function _phaseAfterPlayerMove(): Phase {
+      const eng = makeEngine(makeCircuitMap());
+      playerMove(eng, 't_fork');
+      return eng.phase;
+    }
+
+~example
+    makeEngine(makeCircuitMap()).phase === 'player'
+    playerEnabledTransitions(makeEngine(makeCircuitMap())).length === 1
+
+~example
+    _engineOneCycle().phase === 'player'
+    _engineOneCycle().chomperAtNw === true
+
+---
+
+#Tests
+
+##invalid transition is ignored
+    _invalidMoveIgnored() === true
+
+##after fork phase switches to ghost
+    _phaseAfterPlayerMove() === 'ghost'
+
+#References
+    #Petri Net
+    #Petri Marking
+    #Game Map
+    #Game State

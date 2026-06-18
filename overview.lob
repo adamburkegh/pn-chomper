@@ -1,0 +1,65 @@
+#Overview
+
+Petri Net Hack-Man (pn-pacman) is a browser game where the map is a Petri
+net. Tokens are the player's chomping icons. Transitions are doorways. Places
+are rooms. Arcs are corridors. The game runs for 10–20 minutes as casual fun
+and as a teaching tool for Petri net concepts.
+
+The key insight driving this design is that Petri net semantics already define
+the movement rules. A token moves from a place through an enabled transition
+into one or more output places — that is exactly what a game character does
+when walking through a doorway into a room. When a transition has multiple
+output arcs the token splits, creating two chompers. When a transition has
+multiple input arcs, tokens from several places merge to fire it. These are
+the game's movement mechanics, not abstractions bolted on.
+
+##Architecture
+
+The game is built in TypeScript and runs in the browser with no server.
+Source is organised as notlob modules, one concept per file.
+
+    /*
+     * Module map (addresses are notlob module paths):
+     *
+     *   petri/net       — core Petri net data model (places, transitions, arcs)
+     *   petri/marking   — marking (token distribution) and firing semantics
+     *   game/map        — built-in game maps as Petri net definitions
+     *   game/state      — live game state (token positions, score, ghosts)
+     *   game/engine     — game loop, input handling, win/lose detection
+     *   render/canvas   — canvas renderer, HUD, and all game entities
+     *   pnml            — PNML export (and future import)
+     *   main            — entry point, wires modules together
+     */
+
+##Game Mechanics
+
+Chompers are tokens. Each one lives in a Place. On each turn the player
+selects an enabled transition adjacent to one of their tokens; that token
+fires through the transition and arrives in the output place(s). If the
+transition has two output arcs, a new token is born — the player gains a
+chomper. Dots in places are eaten on entry. Ghosts are autonomous tokens
+that fire enabled transitions at random, moving toward the player.
+
+##Petri Net as Pedagogy
+
+Because the map is a real Petri net, the game teaches:
+- What a place is (a room / location)
+- What a transition is (a doorway / event)
+- What an arc is (a corridor / dependency)
+- What enabling means (can you go through this door?)
+- What firing means (going through the door)
+- Token splitting (one chomper becomes two)
+- Token merging (two chompers must converge to fire a shared transition)
+
+##Future Plans
+
+- Level editor: drag-and-drop Petri net construction that doubles as game
+  design; exported maps are valid Petri nets
+- Soundness checking: highlight dead transitions (blocked corridors)
+- Timed transitions: doorways that close after N seconds
+- Coloured tokens: different chomper types with different abilities
+- Export fired sequence as an event log (process mining hook)
+
+---
+
+#References

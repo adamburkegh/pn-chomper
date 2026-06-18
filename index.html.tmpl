@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Petri Net Hack-Man</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; overflow: hidden; }
+    canvas { position: fixed; top: 0; left: 0; transform-origin: top left; }
+    #instructions {
+      position: fixed; bottom: 12px; right: 12px;
+      color: #555; font: 11px monospace; text-align: right;
+      pointer-events: none;
+    }
+    #map-name {
+      position: fixed; top: 40px; left: 12px;
+      color: #ffe000; font: 13px monospace;
+      opacity: 0; transition: opacity 0.4s;
+      pointer-events: none;
+    }
+
+    /* Menu overlay */
+    #menu {
+      position: fixed; inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.78);
+      z-index: 10;
+    }
+    #menu-inner {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 20px 28px 16px;
+      min-width: 320px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #menu-items {
+      list-style: none;
+    }
+    #menu-items li {
+      font: 14px monospace;
+      padding: 7px 10px;
+      border-left: 2px solid transparent;
+    }
+    #menu-items li.section-header {
+      color: #ffe000;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 14px 10px 4px;
+      cursor: default;
+      border-left: none;
+    }
+    #menu-items li.section-header:first-child { padding-top: 2px; }
+    #menu-items li.action {
+      color: #777;
+      cursor: pointer;
+    }
+    #menu-items li.action:hover { color: #ccc; background: #222; }
+    #menu-items li.action.selected {
+      color: #ffe000;
+      background: #222;
+      border-left-color: #ffe000;
+    }
+    #menu-items li .tag {
+      font-size: 10px;
+      color: #555;
+      margin-left: 8px;
+    }
+    #menu-hint {
+      color: #444;
+      font: 11px monospace;
+      margin-top: 12px;
+      border-top: 1px solid #222;
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <div id="instructions">
+    Click a glowing doorway to move your chomper ●<br>
+    Eat all the dots · Avoid the ghosts<br>
+    Esc — menu
+  </div>
+  <div id="map-name"></div>
+  <div id="menu">
+    <div id="menu-inner">
+      <ul id="menu-items"></ul>
+      <p id="menu-hint">↑ ↓ &nbsp;navigate &nbsp;·&nbsp; Enter &nbsp;select &nbsp;·&nbsp; Esc &nbsp;close</p>
+    </div>
+  </div>
+  <!-- NOTLOB_BUNDLE -->
+</body>
+</html>

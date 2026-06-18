@@ -1,0 +1,15 @@
+#Pn Pacman
+
+A browser game where the map is a Petri net. Tokens are chompers.
+Transitions are doorways. Arcs are corridors.
+
+The build hook bundles the assembled TypeScript into an inline script
+and injects it into index.html, producing a self-contained dist/index.html
+that runs in any browser with no server.
+
+---
+
+#Binding
+    ~language typescript
+    ~external index.html.tmpl
+    ~on-build inject-bundle.ts

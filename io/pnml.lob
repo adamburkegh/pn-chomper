@@ -1,0 +1,132 @@
+#IO PNML
+
+PNML (Petri Net Markup Language) is the standard XML exchange format for Petri
+nets. This module handles export only for now; import will follow.
+
+Export serialises a GameNet to a PNML string. The standard elements carry the
+net topology and layout positions. Game-specific data (playerStart, ghostSpawns,
+hasDot, nodeRadius) lives in toolspecific elements so vanilla PNML readers
+ignore it cleanly.
+
+    function exportPNML(gn: GameNet, netName: string): string {
+      const { net } = gn;
+      const lines: string[] = [];
+
+      lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+      lines.push('<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">');
+      lines.push(`  <net id="pn-pacman" type="http://www.pnml.org/version-2009/grammar/ptnet">`);
+      lines.push(`    <name><text>${escXml(netName)}</text></name>`);
+
+      // Net-level toolspecific
+      lines.push('    <toolspecific tool="pn-pacman" version="1.0">');
+      if (gn.nodeRadius !== undefined) {
+        lines.push(`      <nodeRadius>${gn.nodeRadius}</nodeRadius>`);
+      }
+      lines.push('    </toolspecific>');
+
+      lines.push('    <page id="page1">');
+
+      // Places
+      for (const p of net.places.values()) {
+        const gp = p as GamePlace;
+        lines.push(`      <place id="${escXml(p.id)}">`);
+        lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
+        lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
+        const marking = p.id === gn.playerStart ? 1 : 0;
+        lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
+        lines.push('        <toolspecific tool="pn-pacman" version="1.0">');
+        if (p.id === gn.playerStart) lines.push('          <playerStart/>');
+        if (!gp.hasDot)             lines.push('          <hasDot>false</hasDot>');
+        lines.push('        </toolspecific>');
+        lines.push('      </place>');
+      }
+
+      // Transitions
+      for (const t of net.transitions.values()) {
+        lines.push(`      <transition id="${escXml(t.id)}">`);
+        lines.push(`        <name><text>${escXml(t.label)}</text></name>`);
+        lines.push(`        <graphics><position x="${t.x}" y="${t.y}"/></graphics>`);
+        if (gn.ghostSpawns.includes(t.id)) {
+          lines.push('        <toolspecific tool="pn-pacman" version="1.0">');
+          lines.push('          <ghostSpawn/>');
+          lines.push('        </toolspecific>');
+        }
+        lines.push('      </transition>');
+      }
+
+      // Arcs
+      for (const arc of net.arcs) {
+        lines.push(`      <arc id="${escXml(arc.id)}" source="${escXml(arc.source)}" target="${escXml(arc.target)}">`);
+        lines.push(`        <inscription><text>${arc.weight}</text></inscription>`);
+        lines.push('      </arc>');
+      }
+
+      lines.push('    </page>');
+      lines.push('  </net>');
+      lines.push('</pnml>');
+
+      return lines.join('\n');
+    }
+
+    function escXml(s: string): string {
+      return s.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+    }
+
+    function downloadPNML(gn: GameNet, name: string): void {
+      const xml  = exportPNML(gn, name);
+      const blob = new Blob([xml], { type: 'application/xml' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = name.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.pnml';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+~example
+    exportPNML(makeSplitMap(), 'Split').includes('<pnml')
+    exportPNML(makeSplitMap(), 'Split').includes('playerStart')
+    exportPNML(makeSplitMap(), 'Split').includes('ghostSpawn')
+    exportPNML(makeSplitMap(), 'Split').includes('<arc ')
+
+~example
+    exportPNML(makeGridMap(), 'Grid').includes('<nodeRadius>12</nodeRadius>')
+    exportPNML(makeGridMap(), 'Grid').includes('hasDot>false</hasDot')
+
+---
+
+#Tests
+
+##export produces valid XML structure
+    exportPNML(makeClassicMap(), 'Classic').includes('<?xml version="1.0"')
+    exportPNML(makeClassicMap(), 'Classic').includes('</pnml>')
+
+##every place and transition appears in the export
+    exportPNML(makeSplitMap(), 'Split').includes('id="start"')
+    exportPNML(makeSplitMap(), 'Split').includes('id="t_fork"')
+    exportPNML(makeSplitMap(), 'Split').includes('id="b1"')
+
+##playerStart gets initialMarking 1, others get 0
+    exportPNML(makeSplitMap(), 'Split').includes('<initialMarking><text>1</text></initialMarking>')
+
+##ghostSpawn transition is marked
+    exportPNML(makeSplitMap(), 'Split').includes('<ghostSpawn/>')
+
+##playerStart place is marked
+    exportPNML(makeSplitMap(), 'Split').includes('<playerStart/>')
+
+##nodeRadius appears when set
+    exportPNML(makeGridMap(), 'Grid').includes('<nodeRadius>12</nodeRadius>')
+
+##nodeRadius absent when not set
+    !exportPNML(makeClassicMap(), 'Classic').includes('<nodeRadius>')
+
+##special XML characters are escaped
+    escXml('a & b < c > d "e"') === 'a &amp; b &lt; c &gt; d &quot;e&quot;'
+
+#References
+    #Game Map
+    #Petri Net

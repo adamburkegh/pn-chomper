@@ -1,0 +1,455 @@
+#Game Map
+
+A game map is a Petri net with additional decoration for the game: each place
+knows whether it contains a dot for the player to eat, and each transition can
+be marked as a ghost-spawn point. The net topology is the maze; the decorations
+are the game-layer metadata.
+
+Three built-in maps are supplied. The Classic map is a figure-eight. The
+Split map demonstrates token splitting with a Y-junction and long restart
+corridors. The Cross map is the original simple symmetric demo.
+
+    interface GamePlace extends Place {
+      hasDot: boolean;
+    }
+
+    interface GameNet {
+      net: PetriNet;
+      ghostSpawns: string[];     // transition ids where ghosts emerge
+      playerStart: string;       // place id where player token begins
+      nodeRadius?: number;       // override place drawing radius (default 24)
+    }
+
+    function gamePlace(
+      net: PetriNet, id: string, label: string,
+      x: number, y: number, hasDot = true,
+    ): GamePlace {
+      const p = addPlace(net, id, label, x, y) as GamePlace;
+      p.hasDot = hasDot;
+      return p;
+    }
+
+##Classic Map
+
+The classic map is a figure-eight: two loops sharing a central place.
+Nodes are spread generously so every corridor is clearly visible. The player
+starts at Centre; one ghost spawns at the top-left split and exits to Top Mid,
+well away from the player.
+
+    function makeClassicMap(): GameNet {
+      const net = makeNet();
+
+      // Centre of the figure-eight
+      gamePlace(net, 'c',  'Centre',    467, 440, false);
+      // Top loop
+      gamePlace(net, 'tl', 'Top Left',  160, 200);
+      gamePlace(net, 'tm', 'Top Mid',   467, 130);
+      gamePlace(net, 'tr', 'Top Right', 774, 200);
+      // Bottom loop
+      gamePlace(net, 'bl', 'Bot Left',  160, 680);
+      gamePlace(net, 'bm', 'Bot Mid',   467, 750);
+      gamePlace(net, 'br', 'Bot Right', 774, 680);
+
+      // Top transitions — placed at midpoints with 120-200px corridors on each side
+      addTransition(net, 'tc',   'Top-Centre',      300, 310);
+      addTransition(net, 'tls',  'Top-L Split',     280, 165);
+      addTransition(net, 'tm_t', 'Top-Mid Door',    660, 165);
+      addTransition(net, 'trs',  'Top-R Split',     640, 310);
+      // Bottom transitions (symmetric)
+      addTransition(net, 'bc',   'Bot-Centre',      300, 570);
+      addTransition(net, 'bls',  'Bot-L Split',     280, 715);
+      addTransition(net, 'bm_t', 'Bot-Mid Door',    660, 715);
+      addTransition(net, 'brs',  'Bot-R Split',     640, 570);
+
+      // Top loop: c → tc → tl → tls → tm → tm_t → tr → trs → c
+      addArc(net, 'a1',  'c',   'tc');
+      addArc(net, 'a2',  'tc',  'tl');
+      addArc(net, 'a3',  'tl',  'tls');
+      addArc(net, 'a4',  'tls', 'tm');
+      addArc(net, 'a5',  'tm',  'tm_t');
+      addArc(net, 'a6',  'tm_t','tr');
+      addArc(net, 'a7',  'tr',  'trs');
+      addArc(net, 'a8',  'trs', 'c');
+
+      // Bottom loop: c → bc → bl → bls → bm → bm_t → br → brs → c
+      addArc(net, 'a9',  'c',   'bc');
+      addArc(net, 'a10', 'bc',  'bl');
+      addArc(net, 'a11', 'bl',  'bls');
+      addArc(net, 'a12', 'bls', 'bm');
+      addArc(net, 'a13', 'bm',  'bm_t');
+      addArc(net, 'a14', 'bm_t','br');
+      addArc(net, 'a15', 'br',  'brs');
+      addArc(net, 'a16', 'brs', 'c');
+
+      // Ghost spawns at 'tls' → exits to Top Mid, far from player start Centre
+      return { net, ghostSpawns: ['tls'], playerStart: 'c' };
+    }
+
+##Split Map
+
+The split map teaches token splitting. The key transition is the Fork: it
+has ONE input arc (from Lobby) and TWO output arcs (to Upper Arm and Lower
+Arm). Firing Fork with a single token in Lobby creates two tokens — the
+chomper duplicates. The player must then steer both chompers independently.
+
+Two long restart corridors run along the top and bottom of the canvas,
+looping Finish Upper and Finish Lower back to Start. These are intentionally
+long to make the return journey feel like a proper map traversal.
+
+    function makeSplitMap(): GameNet {
+      const net = makeNet();
+
+      // Main path: left to right
+      gamePlace(net, 'start',    'Start',         120, 440, false);
+      gamePlace(net, 'lobby',    'Lobby',          350, 440);
+      gamePlace(net, 'upper',    'Upper Arm',      590, 260);
+      gamePlace(net, 'lower',    'Lower Arm',      590, 620);
+      gamePlace(net, 'fin_up',   'Finish Upper',   820, 180);
+      gamePlace(net, 'fin_lo',   'Finish Lower',   820, 700);
+
+      // t_fork has TWO output arcs — this is the split transition
+      addTransition(net, 't_enter', 'Enter',       235, 440);
+      addTransition(net, 't_fork',  'Fork',        480, 440);   // ← SPLIT
+      addTransition(net, 't_up',    'Up Door',     710, 210);
+      addTransition(net, 't_lo',    'Lo Door',     710, 670);
+      // Long restart corridors running across top and bottom of the canvas
+      addTransition(net, 't_rst_u', 'Restart Up',  350, 100);
+      addTransition(net, 't_rst_l', 'Restart Lo',  350, 780);
+
+      // Entry
+      addArc(net, 'b1', 'start',  't_enter');
+      addArc(net, 'b2', 't_enter','lobby');
+      // Fork: one input, two outputs — the token split
+      addArc(net, 'b3', 'lobby',  't_fork');
+      addArc(net, 'b4', 't_fork', 'upper');   // output 1
+      addArc(net, 'b5', 't_fork', 'lower');   // output 2
+      // Upper arm
+      addArc(net, 'b6', 'upper',  't_up');
+      addArc(net, 'b7', 't_up',   'fin_up');
+      // Lower arm
+      addArc(net, 'b8', 'lower',  't_lo');
+      addArc(net, 'b9', 't_lo',   'fin_lo');
+      // Long restart corridors back to start
+      addArc(net, 'b10','fin_up', 't_rst_u');
+      addArc(net, 'b11','t_rst_u','start');
+      addArc(net, 'b12','fin_lo', 't_rst_l');
+      addArc(net, 'b13','t_rst_l','start');
+
+      // Ghost spawns at t_up, exits to Finish Upper (far from Start)
+      return { net, ghostSpawns: ['t_up'], playerStart: 'start' };
+    }
+
+##Diamond Map
+
+The diamond extends the basic split-then-merge with optional detour rooms
+on each arm. Fork sends one token into the Upper arm and one into the Lower
+arm. Each arm offers a direct corridor (eat one dot) or a detour room (eat
+two dots but take an extra step). Sync requires tokens in BOTH arm exits
+simultaneously — the player must navigate both chompers into position before
+the merge fires. The ghost starts at Finish and loops back, adding time
+pressure. The restart corridor arcs over the top to complete the cycle.
+
+    function _arcsBipartite(gn: GameNet): boolean {
+      return gn.net.arcs.every(a =>
+        gn.net.places.has(a.source) !== gn.net.places.has(a.target)
+      );
+    }
+
+    function makeDiamondMap(): GameNet {
+      const net = makeNet();
+
+      // Anchor places
+      gamePlace(net, 'start',  'Start',     80,  435, false);
+      gamePlace(net, 'fin',    'Finish',    870,  435, false);
+      // Upper arm: straight path + optional side room
+      gamePlace(net, 'u1',     'Upper In',  370,  235);
+      gamePlace(net, 'u_side', 'U-Side',    490,  120);
+      gamePlace(net, 'u2',     'Upper Out', 630,  235);
+      // Lower arm: straight path + optional side room
+      gamePlace(net, 'l1',     'Lower In',  370,  635);
+      gamePlace(net, 'l_side', 'L-Side',    490,  748);
+      gamePlace(net, 'l2',     'Lower Out', 630,  635);
+
+      // Main structure
+      addTransition(net, 't_fork',   'Fork',      230,  435);  // SPLIT → {u1,l1}
+      addTransition(net, 't_sync',   'Sync',      730,  435);  // JOIN {u2,l2} →
+      addTransition(net, 't_rst',    'Restart',   490,   30);  // fin → start (over top)
+      // Upper direct path
+      addTransition(net, 't_u_main', 'U-Main',    500,  235);
+      // Upper detour
+      addTransition(net, 't_u_in',   'U-Det In',  425,  173);
+      addTransition(net, 't_u_out',  'U-Det Out', 565,  177);
+      // Lower direct path
+      addTransition(net, 't_l_main', 'L-Main',    500,  635);
+      // Lower detour
+      addTransition(net, 't_l_in',   'L-Det In',  425,  697);
+      addTransition(net, 't_l_out',  'L-Det Out', 565,  697);
+
+      // Fork
+      addArc(net, 'd1',  'start',  't_fork');
+      addArc(net, 'd2',  't_fork', 'u1');
+      addArc(net, 'd3',  't_fork', 'l1');
+      // Upper direct
+      addArc(net, 'd4',  'u1',    't_u_main');
+      addArc(net, 'd5',  't_u_main', 'u2');
+      // Upper detour
+      addArc(net, 'd6',  'u1',    't_u_in');
+      addArc(net, 'd7',  't_u_in', 'u_side');
+      addArc(net, 'd8',  'u_side', 't_u_out');
+      addArc(net, 'd9',  't_u_out', 'u2');
+      // Lower direct
+      addArc(net, 'd10', 'l1',    't_l_main');
+      addArc(net, 'd11', 't_l_main', 'l2');
+      // Lower detour
+      addArc(net, 'd12', 'l1',    't_l_in');
+      addArc(net, 'd13', 't_l_in', 'l_side');
+      addArc(net, 'd14', 'l_side', 't_l_out');
+      addArc(net, 'd15', 't_l_out', 'l2');
+      // Sync
+      addArc(net, 'd16', 'u2',    't_sync');
+      addArc(net, 'd17', 'l2',    't_sync');
+      addArc(net, 'd18', 't_sync', 'fin');
+      // Restart
+      addArc(net, 'd19', 'fin',   't_rst');
+      addArc(net, 'd20', 't_rst', 'start');
+
+      return { net, ghostSpawns: ['t_sync'], playerStart: 'start' };
+    }
+
+##Circuit Map
+
+The circuit map scales the fork-join idea into a proper maze. Fork at
+the depot sends tokens into a north arm (NW → North → NE) and a south
+arm (SW → South → SE) simultaneously. Only when both arm-end tokens are
+present can Sync fire, granting access to the East reward room.
+
+Without an escape route, losing one chomper to a ghost at an arm-end
+creates a permanent deadlock: the survivor can reach its arm-end but
+Sync never enables. To fix this, NE and SE each have an interior escape
+transition leading to a central Mid room, which routes back to Depot.
+A surviving token can loop home, re-fork, and try again. This also keeps
+the ghost moving rather than stuck waiting at an arm-end.
+
+    function makeCircuitMap(): GameNet {
+      const net = makeNet();
+
+      gamePlace(net, 'depot', 'Depot',  80, 440, false);
+      gamePlace(net, 'nw',    'NW',    300, 240);
+      gamePlace(net, 'nn',    'North', 510, 160);
+      gamePlace(net, 'ne',    'NE',    720, 240);
+      gamePlace(net, 'sw',    'SW',    300, 640);
+      gamePlace(net, 'ss',    'South', 510, 720);
+      gamePlace(net, 'se',    'SE',    720, 640);
+      gamePlace(net, 'east',  'East',  880, 440);
+      gamePlace(net, 'mid',   'Mid',   490, 440);  // interior escape hub
+
+      addTransition(net, 't_fork',   'Fork',    200, 440);  // SPLIT: depot→{nw,sw}
+      addTransition(net, 't_nw_nn',  'NW→N',    405, 200);
+      addTransition(net, 't_nn_ne',  'N→NE',    615, 200);
+      addTransition(net, 't_sw_ss',  'SW→S',    405, 680);
+      addTransition(net, 't_ss_se',  'S→SE',    615, 680);
+      addTransition(net, 't_sync',   'Sync',    800, 440);  // JOIN: {ne,se}→east
+      addTransition(net, 't_rst',    'Restart', 490,  80);  // long restart
+      addTransition(net, 't_ne_mid', 'NE→Mid',  620, 330);  // escape from NE
+      addTransition(net, 't_se_mid', 'SE→Mid',  620, 550);  // escape from SE
+      addTransition(net, 't_mid_dep','Mid→Home',285, 380);  // return to depot
+
+      addArc(net, 'c1',  'depot',    't_fork');
+      addArc(net, 'c2',  't_fork',   'nw');
+      addArc(net, 'c3',  't_fork',   'sw');
+      addArc(net, 'c4',  'nw',       't_nw_nn');
+      addArc(net, 'c5',  't_nw_nn',  'nn');
+      addArc(net, 'c6',  'nn',       't_nn_ne');
+      addArc(net, 'c7',  't_nn_ne',  'ne');
+      addArc(net, 'c8',  'sw',       't_sw_ss');
+      addArc(net, 'c9',  't_sw_ss',  'ss');
+      addArc(net, 'c10', 'ss',       't_ss_se');
+      addArc(net, 'c11', 't_ss_se',  'se');
+      addArc(net, 'c12', 'ne',       't_sync');
+      addArc(net, 'c13', 'se',       't_sync');
+      addArc(net, 'c14', 't_sync',   'east');
+      addArc(net, 'c15', 'east',     't_rst');
+      addArc(net, 'c16', 't_rst',    'depot');
+      addArc(net, 'c17', 'ne',       't_ne_mid');
+      addArc(net, 'c18', 't_ne_mid', 'mid');
+      addArc(net, 'c19', 'se',       't_se_mid');
+      addArc(net, 'c20', 't_se_mid', 'mid');
+      addArc(net, 'c21', 'mid',      't_mid_dep');
+      addArc(net, 'c22', 't_mid_dep','depot');
+
+      return { net, ghostSpawns: ['t_sync'], playerStart: 'depot' };
+    }
+
+##Grid Map
+
+The grid map is a large-scale demonstration: 10 × 10 = 100 places arranged
+in a regular grid. Most interior places offer a choice (go right OR go down).
+Five fork junctions — distributed across the four quadrants and the centre —
+are key contested territory: arriving at one fires a split that sends tokens
+RIGHT AND DOWN simultaneously. No choice is offered; the arrival token
+becomes two, moving in both directions at once.
+
+Fork junctions are focal because the ghost follows the same firing rules.
+A ghost that reaches a fork junction splits too, suddenly threatening from
+two corridors at once. Contesting a fork junction means fighting on two
+fronts.
+
+The bottom-right corner loops back to the top-left via a restart transition.
+Node radius is halved (12 px) so the dense grid fits the canvas; adaptive
+corridor margins keep short arcs visible.
+
+    function makeGridMap(): GameNet {
+      const net = makeNet();
+      const ROWS = 10, COLS = 10;
+      const STEP = 80;
+      const OX = Math.round((940 - (COLS - 1) * STEP) / 2);
+      const OY = Math.round((780 - (ROWS - 1) * STEP) / 2);
+
+      // Fork junctions: arrival fires a split → RIGHT and DOWN simultaneously.
+      // Placed at four quadrant centres; the grid centre uses a join room instead.
+      const FORKS = new Set(['2_2', '2_7', '7_2', '7_7']);
+
+      // --- Places ---
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const isStart = r === 0 && c === 0;
+          gamePlace(net, `g${r}_${c}`, `${r}:${c}`,
+            OX + c * STEP, OY + r * STEP, !isStart);
+        }
+      }
+
+      // --- Transitions ---
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const isFork = FORKS.has(`${r}_${c}`) && c < COLS - 1 && r < ROWS - 1;
+
+          if (isFork) {
+            // One fork transition: single token → right AND down at once
+            const tid = `gf${r}_${c}`;
+            const tx = OX + c * STEP + Math.round(STEP * 0.35);
+            const ty = OY + r * STEP + Math.round(STEP * 0.35);
+            addTransition(net, tid, 'Fork', tx, ty);
+            addArc(net, `af${r}_${c}i`, `g${r}_${c}`, tid);
+            addArc(net, `af${r}_${c}r`, tid, `g${r}_${c + 1}`);
+            addArc(net, `af${r}_${c}d`, tid, `g${r + 1}_${c}`);
+          } else {
+            // Choice: right corridor
+            if (c < COLS - 1) {
+              const tid = `gr${r}_${c}`;
+              addTransition(net, tid, 'R',
+                OX + c * STEP + STEP / 2, OY + r * STEP);
+              addArc(net, `ar${r}_${c}a`, `g${r}_${c}`, tid);
+              addArc(net, `ar${r}_${c}b`, tid, `g${r}_${c + 1}`);
+            }
+            // Choice: down corridor
+            if (r < ROWS - 1) {
+              const tid = `gd${r}_${c}`;
+              addTransition(net, tid, 'D',
+                OX + c * STEP, OY + r * STEP + STEP / 2);
+              addArc(net, `ad${r}_${c}a`, `g${r}_${c}`, tid);
+              addArc(net, `ad${r}_${c}b`, tid, `g${r + 1}_${c}`);
+            }
+          }
+        }
+      }
+
+      // --- Central join room ---
+      // Only reachable when g5_6 AND g6_5 are occupied simultaneously —
+      // requires a token split somewhere else first, then converging both halves.
+      const roomX = OX + 5 * STEP + 45;               // 555
+      const roomY = OY + 4 * STEP + 35;               // 385
+      gamePlace(net, 'room', 'Room', roomX, roomY);
+      const joinX = OX + 5 * STEP + 50;               // 560
+      const joinY = OY + 5 * STEP + 50;               // 480
+      addTransition(net, 'tj_room', 'Join', joinX, joinY);
+      addArc(net, 'aj_r_i1', 'g5_6', 'tj_room');
+      addArc(net, 'aj_r_i2', 'g6_5', 'tj_room');
+      addArc(net, 'aj_r_o',  'tj_room', 'room');
+      // Exit: room resurfaces at g3_5 (two rows above the join)
+      const exitX = OX + 5 * STEP + 25;               // 535
+      const exitY = OY + 3 * STEP + 55;               // 325
+      addTransition(net, 't_room_out', 'Exit', exitX, exitY);
+      addArc(net, 'aj_r_e1', 'room', 't_room_out');
+      addArc(net, 'aj_r_e2', 't_room_out', 'g3_5');
+
+      // --- Restart: bottom-right → top-left ---
+      const rxEnd = OX + (COLS - 1) * STEP;
+      const ryEnd = OY + (ROWS - 1) * STEP;
+      addTransition(net, 'g_rst', 'Restart', rxEnd + 55, ryEnd);
+      addArc(net, 'ar_rst_a', `g${ROWS - 1}_${COLS - 1}`, 'g_rst');
+      addArc(net, 'ar_rst_b', 'g_rst', 'g0_0');
+
+      // Ghost spawns at centre-right transition, emerges at g4_5
+      return { net, ghostSpawns: ['gr4_4'], playerStart: 'g0_0', nodeRadius: 12 };
+    }
+
+~example
+    makeClassicMap().net.places.size === 7
+    makeClassicMap().net.transitions.size === 8
+    makeClassicMap().playerStart === 'c'
+
+~example
+    makeSplitMap().net.places.size === 6
+    makeSplitMap().net.transitions.size === 6
+    outputArcs(makeSplitMap().net, 't_fork').length === 2
+
+~example
+    makeDiamondMap().net.places.size === 8
+    makeDiamondMap().net.transitions.size === 9
+    outputArcs(makeDiamondMap().net, 't_fork').length === 2
+    inputArcs(makeDiamondMap().net, 't_sync').length === 2
+
+~example
+    makeCircuitMap().net.places.size === 9
+    makeCircuitMap().net.transitions.size === 10
+    outputArcs(makeCircuitMap().net, 't_fork').length === 2
+    inputArcs(makeCircuitMap().net, 't_sync').length === 2
+    transitionsForPlace(makeCircuitMap().net, 'ne').length === 2
+
+~example
+    makeGridMap().net.places.size === 101
+    makeGridMap().net.transitions.size === 179
+    makeGridMap().playerStart === 'g0_0'
+    makeGridMap().nodeRadius === 12
+
+---
+
+#Tests
+
+##classic map arcs are bipartite
+    _arcsBipartite(makeClassicMap())
+
+##ghost spawn is a valid transition
+    makeClassicMap().net.transitions.has(makeClassicMap().ghostSpawns[0])
+
+##split map: fork has one input and two outputs
+    inputArcs(makeSplitMap().net, 't_fork').length === 1
+    outputArcs(makeSplitMap().net, 't_fork').length === 2
+
+##split map: restart corridors return to start
+    outputArcs(makeSplitMap().net, 't_rst_u')[0].target === 'start'
+    outputArcs(makeSplitMap().net, 't_rst_l')[0].target === 'start'
+
+##diamond: sync is a two-input join; each arm has two route choices
+    inputArcs(makeDiamondMap().net, 't_sync').length === 2
+    outputArcs(makeDiamondMap().net, 't_sync')[0].target === 'fin'
+    transitionsForPlace(makeDiamondMap().net, 'u1').length === 2
+    transitionsForPlace(makeDiamondMap().net, 'l1').length === 2
+
+##circuit: fork splits, sync joins, arm-ends have escape arcs
+    outputArcs(makeCircuitMap().net, 't_fork').length === 2
+    inputArcs(makeCircuitMap().net, 't_sync').length === 2
+    outputArcs(makeCircuitMap().net, 't_sync')[0].target === 'east'
+    transitionsForPlace(makeCircuitMap().net, 'ne').length === 2
+    transitionsForPlace(makeCircuitMap().net, 'se').length === 2
+
+##grid: 101 places, join room only reachable via coordinated two-token play
+    makeGridMap().net.places.size === 101
+    makeGridMap().net.transitions.size === 179
+    transitionsForPlace(makeGridMap().net, 'g3_3').length === 2
+    transitionsForPlace(makeGridMap().net, 'g5_5').length === 2
+    inputArcs(makeGridMap().net, 'tj_room').length === 2
+    outputArcs(makeGridMap().net, 'g_rst')[0].target === 'g0_0'
+
+#References
+    #Petri Net

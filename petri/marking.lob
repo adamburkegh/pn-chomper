@@ -1,0 +1,112 @@
+#Petri Marking
+
+A marking assigns a non-negative integer token count to each place in a
+Petri net. It is the dynamic state — who is where — while the net itself
+(see #Petri Net) is the static map.
+
+In the game a marking records where every chomper and every ghost currently
+lives. Multiple tokens can occupy the same place: two chompers in one room
+is perfectly valid Petri net semantics, and makes for interesting gameplay.
+
+    type Marking = Map<string, number>;
+
+    function emptyMarking(): Marking {
+      return new Map();
+    }
+
+    function tokenCount(m: Marking, placeId: string): number {
+      return m.get(placeId) ?? 0;
+    }
+
+    function setTokens(m: Marking, placeId: string, count: number): void {
+      m.set(placeId, count);
+    }
+
+    function markingAddTokens(m: Marking, placeId: string, count: number): void {
+      m.set(placeId, (m.get(placeId) ?? 0) + count);
+    }
+
+    function markingRemoveTokens(m: Marking, placeId: string, count: number): void {
+      const current = m.get(placeId) ?? 0;
+      if (current < count) throw new Error(
+        `Cannot remove ${count} tokens from '${placeId}' — only ${current} present`
+      );
+      m.set(placeId, current - count);
+    }
+
+##Enabling and Firing
+
+A transition is enabled when each of its input places holds at least as
+many tokens as the arc weight requires. Firing consumes those tokens from
+the input places and produces tokens in the output places.
+
+Splitting: when a transition has two output arcs a single input token
+produces two output tokens. This is the core mechanic that lets a chomper
+duplicate when it passes through a branching doorway.
+
+    function isEnabled(net: PetriNet, marking: Marking, transitionId: string): boolean {
+      return inputArcs(net, transitionId).every(
+        arc => tokenCount(marking, arc.source) >= arc.weight,
+      );
+    }
+
+    function fire(net: PetriNet, marking: Marking, transitionId: string): Marking {
+      if (!isEnabled(net, marking, transitionId))
+        throw new Error(`Transition '${transitionId}' is not enabled`);
+      const next = new Map(marking);
+      for (const arc of inputArcs(net, transitionId))
+        markingRemoveTokens(next, arc.source, arc.weight);
+      for (const arc of outputArcs(net, transitionId))
+        markingAddTokens(next, arc.target, arc.weight);
+      return next;
+    }
+
+    function enabledTransitions(net: PetriNet, marking: Marking): string[] {
+      return [...net.transitions.keys()].filter(id => isEnabled(net, marking, id));
+    }
+
+The marking examples below reuse the split net defined in #Petri Net
+(_testNet: p1 -> t1 -> {p2, p3}).
+
+    const _m0 = emptyMarking();
+    markingAddTokens(_m0, 'p1', 1);   // one token in Start
+
+    const _m1 = fire(_testNet, _m0, 't1');  // fire the split
+
+    function _underflowThrows(): boolean {
+      const m = emptyMarking();
+      try { markingRemoveTokens(m, 'p99', 1); return false; }
+      catch { return true; }
+    }
+
+    function _fireDisabledThrows(): boolean {
+      const empty = emptyMarking();
+      try { fire(_testNet, empty, 't1'); return false; }
+      catch { return true; }
+    }
+
+~example
+    tokenCount(_m0, 'p1') === 1
+    tokenCount(_m0, 'p2') === 0
+    isEnabled(_testNet, _m0, 't1')
+
+~example
+    tokenCount(_m1, 'p1') === 0
+    tokenCount(_m1, 'p2') === 1
+    tokenCount(_m1, 'p3') === 1
+    _underflowThrows()
+    _fireDisabledThrows()
+
+---
+
+#Tests
+
+##enabledTransitions lists only enabled ones
+    enabledTransitions(_testNet, _m0).length === 1
+    enabledTransitions(_testNet, _m0)[0] === 't1'
+
+##after split no transitions remain enabled (no input token)
+    enabledTransitions(_testNet, _m1).length === 0
+
+#References
+    #Petri Net

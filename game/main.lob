@@ -1,0 +1,196 @@
+#Game Main
+
+The main module is the browser entry point. It creates the canvas, the engine,
+and the renderer, then wires up click input, keyboard shortcuts, and the
+animation loop.
+
+The player interacts by clicking on a highlighted (enabled) transition. The
+game then fires that transition, advances the ghost turn automatically after
+a short delay, and redraws.
+
+Click interaction is used rather than arrow keys because Petri net movement
+is fundamentally non-directional — the player chooses an event (transition),
+not a compass direction. This also surfaces the Petri net structure more
+clearly as a teaching tool.
+
+Map switching is handled by keys 1 through 5, which swap the active GameNet
+and reset the engine. The renderer and canvas stay constant; only the game
+state is replaced. This makes the map-switch instantaneous and clean.
+
+    function hitTestTransition(
+      net: PetriNet,
+      x: number, y: number,
+    ): string | null {
+      for (const t of net.transitions.values()) {
+        const dx = Math.abs(x - t.x);
+        const dy = Math.abs(y - t.y);
+        if (dx < 14 && dy < 25) return t.id;
+      }
+      return null;
+    }
+
+    interface MapEntry {
+      name: string;
+      tag?: string;        // shown in list: 'built-in', 'loaded', 'campaign'
+      fn: () => GameNet;
+    }
+
+    const mapList: MapEntry[] = [
+      { name: 'Classic (figure-eight)',    fn: makeClassicMap,  tag: 'built-in' },
+      { name: 'Split (Y-junction)',        fn: makeSplitMap,    tag: 'built-in' },
+      { name: 'Diamond (sync + detours)', fn: makeDiamondMap,  tag: 'built-in' },
+      { name: 'Circuit (fork + join)',     fn: makeCircuitMap,  tag: 'built-in' },
+      // { name: 'Grid (10×10 = 100 places)', fn: makeGridMap, tag: 'built-in' },
+    ];
+    let mapIdx = 0;
+
+~run
+    const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
+    const DESIGN_W = 950;
+    const DESIGN_H = 780;
+    canvas.width  = DESIGN_W;
+    canvas.height = DESIGN_H;
+
+    function applyScale(): void {
+      const w = window.innerWidth  || document.documentElement.clientWidth  || DESIGN_W;
+      const h = window.innerHeight || document.documentElement.clientHeight || DESIGN_H;
+      const s = Math.min(w / DESIGN_W, h / DESIGN_H);
+      canvas.style.transform = `scale(${s})`;
+    }
+    applyScale();
+
+    const rnd = makeRenderer(canvas);
+    let gn    = mapList[0].fn();
+    let eng   = makeEngine(gn);
+
+    function showMapName(name: string): void {
+      const el = document.getElementById('map-name') as HTMLElement | null;
+      if (el) { el.textContent = name; el.style.opacity = '1'; }
+      setTimeout(() => { if (el) el.style.opacity = '0'; }, 2000);
+    }
+
+    function selectMap(i: number): void {
+      mapIdx = i;
+      gn  = mapList[i].fn();
+      eng = makeEngine(gn);
+      showMapName(mapList[i].name);
+    }
+
+    // Menu — sections with headers and selectable action items
+    type MenuSectionHeader = { kind: 'header'; label: string };
+    type MenuAction = { kind: 'action'; label: string; tag?: string; run: () => void };
+    type MenuItem = MenuSectionHeader | MenuAction;
+
+    let menuItems: MenuItem[] = [];
+    let menuSel = 0;
+
+    function buildMenuItems(): void {
+      menuItems = [
+        { kind: 'header', label: 'Game' },
+        { kind: 'action', label: 'Restart',      run: () => { eng = makeEngine(gn); } },
+        { kind: 'action', label: 'Export PNML',  run: () => downloadPNML(gn, mapList[mapIdx].name) },
+        { kind: 'header', label: 'Maps' },
+        ...mapList.map((entry, i): MenuAction => ({
+          kind: 'action', label: entry.name, tag: entry.tag,
+          run: () => selectMap(i),
+        })),
+      ];
+    }
+
+    function menuActions(): MenuAction[] {
+      return menuItems.filter((m): m is MenuAction => m.kind === 'action');
+    }
+
+    function renderMenu(): void {
+      const ul = document.getElementById('menu-items') as HTMLUListElement;
+      ul.innerHTML = '';
+      const actions  = menuActions();
+      const selected = actions[menuSel];
+      let ai = 0;
+      for (const item of menuItems) {
+        const li = document.createElement('li');
+        if (item.kind === 'header') {
+          li.className = 'section-header';
+          li.textContent = item.label;
+        } else {
+          li.className = 'action' + (item === selected ? ' selected' : '');
+          li.innerHTML = escXml(item.label) +
+            (item.tag ? `<span class="tag">${item.tag}</span>` : '');
+          const idx = ai++;
+          li.addEventListener('click', () => {
+            menuSel = idx; actions[idx].run(); hideMenu();
+          });
+        }
+        ul.appendChild(li);
+      }
+    }
+
+    function showMenu(): void {
+      buildMenuItems();
+      renderMenu();
+      (document.getElementById('menu') as HTMLElement).style.display = 'flex';
+    }
+
+    function hideMenu(): void {
+      (document.getElementById('menu') as HTMLElement).style.display = 'none';
+    }
+
+    function loop() {
+      render(rnd, eng);
+      requestAnimationFrame(loop);
+    }
+    loop();
+    (window as any)._forceRender = () => render(rnd, eng);
+
+    canvas.addEventListener('click', (e: MouseEvent) => {
+      if (eng.phase !== 'player') return;
+      const rect = canvas.getBoundingClientRect();
+      const s = rect.width / DESIGN_W;
+      const x = (e.clientX - rect.left) / s;
+      const y = (e.clientY - rect.top) / s;
+      const tid = hitTestTransition(gn.net, x, y);
+      if (tid) {
+        playerMove(eng, tid);
+        setTimeout(() => ghostTurn(eng), 400);
+      }
+    });
+
+    document.addEventListener('keydown', (e: KeyboardEvent) => {
+      const menuOpen =
+        (document.getElementById('menu') as HTMLElement).style.display !== 'none';
+
+      if (menuOpen) {
+        const actions = menuActions();
+        if (e.key === 'ArrowDown') {
+          menuSel = (menuSel + 1) % actions.length;
+          renderMenu();
+        } else if (e.key === 'ArrowUp') {
+          menuSel = (menuSel - 1 + actions.length) % actions.length;
+          renderMenu();
+        } else if (e.key === 'Enter') {
+          actions[menuSel].run();
+          hideMenu();
+        } else if (e.key === 'Escape') {
+          hideMenu();
+        }
+        e.preventDefault();
+        return;
+      }
+
+      if (e.key === 'Escape') { showMenu(); }
+    });
+
+    window.addEventListener('resize', () => {
+      applyScale();
+    });
+
+---
+
+#References
+    #Petri Net
+    #Petri Marking
+    #Game Map
+    #Game State
+    #Game Engine
+    #Render Canvas
+    #IO PNML
