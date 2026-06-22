@@ -13,9 +13,10 @@ is fundamentally non-directional — the player chooses an event (transition),
 not a compass direction. This also surfaces the Petri net structure more
 clearly as a teaching tool.
 
-Map switching is handled by keys 1 through 5, which swap the active GameNet
-and reset the engine. The renderer and canvas stay constant; only the game
-state is replaced. This makes the map-switch instantaneous and clean.
+Map switching is done through the ESC menu, which lists all loaded maps.
+The renderer and canvas stay constant; only the game state is replaced.
+Maps can be loaded from local PNML files via the menu, or from a URL via
+the ?map= query parameter on startup.
 
     function hitTestTransition(
       net: PetriNet,
@@ -87,8 +88,9 @@ state is replaced. This makes the map-switch instantaneous and clean.
     function buildMenuItems(): void {
       menuItems = [
         { kind: 'header', label: 'Game' },
-        { kind: 'action', label: 'Restart',      run: () => { eng = makeEngine(gn); } },
-        { kind: 'action', label: 'Export PNML',  run: () => downloadPNML(gn, mapList[mapIdx].name) },
+        { kind: 'action', label: 'Restart',         run: () => { eng = makeEngine(gn); } },
+        { kind: 'action', label: 'Export PNML',     run: () => downloadPNML(gn, mapList[mapIdx].name) },
+        { kind: 'action', label: 'Load PNML file…', run: () => { hideMenu(); pnmlInput.click(); } },
         { kind: 'header', label: 'Maps' },
         ...mapList.map((entry, i): MenuAction => ({
           kind: 'action', label: entry.name, tag: entry.tag,
@@ -134,6 +136,45 @@ state is replaced. This makes the map-switch instantaneous and clean.
     function hideMenu(): void {
       (document.getElementById('menu') as HTMLElement).style.display = 'none';
     }
+
+    // PNML file loader — hidden input triggered from the menu
+    const pnmlInput = document.createElement('input');
+    pnmlInput.type = 'file';
+    pnmlInput.accept = '.pnml,.xml';
+    pnmlInput.style.display = 'none';
+    document.body.appendChild(pnmlInput);
+    pnmlInput.addEventListener('change', () => {
+      const file = pnmlInput.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const loaded = importPNML(ev.target!.result as string);
+          const name = file.name.replace(/\.(pnml|xml)$/i, '');
+          mapList.push({ name, tag: 'loaded', fn: () => loaded });
+          selectMap(mapList.length - 1);
+        } catch (err) {
+          console.error('PNML load failed:', err);
+        }
+      };
+      reader.readAsText(file);
+      pnmlInput.value = '';
+    });
+
+    // ?map=URL — load a PNML from a URL on startup
+    (async () => {
+      const mapUrl = new URLSearchParams(location.search).get('map');
+      if (!mapUrl) return;
+      try {
+        const xml  = await fetch(mapUrl).then(r => r.text());
+        const loaded = importPNML(xml);
+        const name = mapUrl.split('/').pop()?.replace(/\.(pnml|xml)$/i, '') ?? 'loaded';
+        mapList.push({ name, tag: 'loaded', fn: () => loaded });
+        selectMap(mapList.length - 1);
+      } catch (err) {
+        console.error('?map= load failed:', err);
+      }
+    })();
 
     function loop() {
       render(rnd, eng);
@@ -188,9 +229,7 @@ state is replaced. This makes the map-switch instantaneous and clean.
 
 #References
     #Petri Net
-    #Petri Marking
     #Game Map
-    #Game State
     #Game Engine
     #Render Canvas
     #IO PNML

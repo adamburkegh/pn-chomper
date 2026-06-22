@@ -1,7 +1,7 @@
 #Render Canvas
 
 The canvas renderer draws the Petri net game world onto an HTML5 Canvas. It
-is a pure read operation on the game state — it never mutates anything. The
+is a pure read operation on the GameState — it never mutates anything. The
 renderer is called once per animation frame and redraws the entire scene.
 
 The visual vocabulary maps Petri net concepts to game imagery. Places are

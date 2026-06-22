@@ -1,12 +1,18 @@
 #IO PNML
 
 PNML (Petri Net Markup Language) is the standard XML exchange format for Petri
-nets. This module handles export only for now; import will follow.
+nets. This module handles both export and import.
 
 Export serialises a GameNet to a PNML string. The standard elements carry the
 net topology and layout positions. Game-specific data (playerStart, ghostSpawns,
 hasDot, nodeRadius) lives in toolspecific elements so vanilla PNML readers
 ignore it cleanly.
+
+Import parses a PNML string back into a GameNet. Positions are scale-to-fit
+into the 950×780 canvas so any net looks reasonable regardless of its original
+coordinate space. When loading vanilla PNML (no toolspecific extensions), safe
+defaults apply: every place gets a dot, the first marked place becomes
+playerStart, and there are no ghost spawns.
 
     function exportPNML(gn: GameNet, netName: string): string {
       const { net } = gn;
@@ -73,6 +79,89 @@ ignore it cleanly.
               .replace(/</g, '&lt;')
               .replace(/>/g, '&gt;')
               .replace(/"/g, '&quot;');
+    }
+
+    function importPNML(xmlString: string): GameNet {
+      const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
+      if (doc.querySelector('parsererror'))
+        throw new Error('PNML parse error');
+
+      type RawPlace = { id: string; label: string; x: number; y: number; hasDot: boolean; isStart: boolean; marking: number };
+      type RawTrans = { id: string; label: string; x: number; y: number; isSpawn: boolean };
+
+      function nodeText(el: Element, sel: string): string {
+        return el.querySelector(sel)?.textContent?.trim() ?? '';
+      }
+      function nodePos(el: Element): { x: number; y: number } {
+        const p = el.querySelector('graphics > position');
+        return { x: parseFloat(p?.getAttribute('x') ?? '0'), y: parseFloat(p?.getAttribute('y') ?? '0') };
+      }
+
+      const rawPlaces: RawPlace[] = [];
+      for (const el of doc.querySelectorAll('place')) {
+        const id = el.getAttribute('id') ?? '';
+        const ts = el.querySelector('toolspecific[tool="pn-pacman"]');
+        rawPlaces.push({
+          id, label: nodeText(el, 'name > text') || id,
+          ...nodePos(el),
+          hasDot:  ts ? ts.querySelector('hasDot')?.textContent?.trim() !== 'false' : true,
+          isStart: !!ts?.querySelector('playerStart'),
+          marking: parseInt(nodeText(el, 'initialMarking > text') || '0', 10),
+        });
+      }
+
+      const rawTrans: RawTrans[] = [];
+      for (const el of doc.querySelectorAll('transition')) {
+        const id = el.getAttribute('id') ?? '';
+        const ts = el.querySelector('toolspecific[tool="pn-pacman"]');
+        rawTrans.push({
+          id, label: nodeText(el, 'name > text') || id,
+          ...nodePos(el),
+          isSpawn: !!ts?.querySelector('ghostSpawn'),
+        });
+      }
+
+      // Scale all positions to fit 950×780 with padding
+      const allX = [...rawPlaces, ...rawTrans].map(n => n.x);
+      const allY = [...rawPlaces, ...rawTrans].map(n => n.y);
+      const minX = Math.min(...allX), maxX = Math.max(...allX);
+      const minY = Math.min(...allY), maxY = Math.max(...allY);
+      const PAD = 80, CW = 950, CH = 780;
+      const sc  = Math.min(
+        (maxX > minX) ? (CW - 2 * PAD) / (maxX - minX) : 1,
+        (maxY > minY) ? (CH - 2 * PAD) / (maxY - minY) : 1,
+      );
+      const fx = (x: number) => (x - minX) * sc + PAD;
+      const fy = (y: number) => (y - minY) * sc + PAD;
+
+      const net = makeNet();
+      for (const p of rawPlaces) {
+        const gp = addPlace(net, p.id, p.label, fx(p.x), fy(p.y)) as GamePlace;
+        gp.hasDot = p.hasDot;
+      }
+      for (const t of rawTrans) {
+        addTransition(net, t.id, t.label, fx(t.x), fy(t.y));
+      }
+      for (const el of doc.querySelectorAll('arc')) {
+        const id  = el.getAttribute('id') ?? '';
+        const src = el.getAttribute('source') ?? '';
+        const tgt = el.getAttribute('target') ?? '';
+        const w   = parseInt(el.querySelector('inscription > text')?.textContent?.trim() ?? '1', 10);
+        try { addArc(net, id, src, tgt, w); } catch { /* skip malformed arcs */ }
+      }
+
+      const playerStart =
+        rawPlaces.find(p => p.isStart)?.id ??
+        rawPlaces.find(p => p.marking > 0)?.id ??
+        rawPlaces[0]?.id ?? '';
+
+      const ghostSpawns = rawTrans.filter(t => t.isSpawn).map(t => t.id);
+
+      const nrText = doc.querySelector('net > toolspecific[tool="pn-pacman"] > nodeRadius')
+                       ?.textContent?.trim();
+      const nodeRadius = nrText ? parseInt(nrText, 10) : undefined;
+
+      return { net, playerStart, ghostSpawns, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
     }
 
     function downloadPNML(gn: GameNet, name: string): void {

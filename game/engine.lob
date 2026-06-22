@@ -9,6 +9,8 @@ Player turns and ghost turns alternate. On a player turn the engine fires one
 transition in the chomper marking. On the ghost turn the engine fires a random
 enabled transition for each ghost token. This creates an autonomous adversary
 whose movement is governed by the same Petri net firing rules as the player.
+Both operations take the PetriNet as context for which transitions exist and
+how they connect to places.
 
     type Phase = 'player' | 'ghost' | 'won' | 'lost';
 
