@@ -18,18 +18,16 @@ the game's movement mechanics, not abstractions bolted on.
 The game is built in TypeScript and runs in the browser with no server.
 Source is organised as notlob modules, one concept per file.
 
-    /*
-     * Module map (addresses are notlob module paths):
-     *
-     *   petri/net       — core Petri net data model (places, transitions, arcs)
-     *   petri/marking   — marking (token distribution) and firing semantics
-     *   game/map        — built-in game maps as Petri net definitions
-     *   game/state      — live game state (token positions, score, ghosts)
-     *   game/engine     — game loop, input handling, win/lose detection
-     *   render/canvas   — canvas renderer, HUD, and all game entities
-     *   pnml            — PNML export (and future import)
-     *   main            — entry point, wires modules together
-     */
+Module map (addresses are notlob module paths):
+
+- petri/net       — core Petri net data model (places, transitions, arcs)
+- petri/marking   — marking (token distribution) and firing semantics
+- game/map        — built-in game maps as Petri net definitions
+- game/state      — live game state (token positions, score, ghosts)
+- game/engine     — game loop, input handling, win/lose detection
+- render/canvas   — canvas renderer, HUD, and all game entities
+- io/pnml         — PNML export and import
+- game/main       — entry point, wires modules together
 
 ##Game Mechanics
 
@@ -53,8 +51,7 @@ Because the map is a real Petri net, the game teaches:
 
 ##Future Plans
 
-- Level editor: drag-and-drop Petri net construction that doubles as game
-  design; exported maps are valid Petri nets
+- Level editor: drag-and-drop Petri net construction that doubles as game design; exported maps are valid Petri nets
 - Soundness checking: highlight dead transitions (blocked corridors)
 - Timed transitions: doorways that close after N seconds
 - Coloured tokens: different chomper types with different abilities

@@ -219,6 +219,7 @@ the ?map= query parameter on startup.
       }
 
       if (e.key === 'Escape') { showMenu(); }
+      if (e.key === 'r' || e.key === 'R') { eng = makeEngine(gn); }
     });
 
     window.addEventListener('resize', () => {
