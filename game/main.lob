@@ -37,10 +37,10 @@ the ?map= query parameter on startup.
     }
 
     const mapList: MapEntry[] = [
-      { name: 'Classic (figure-eight)',    fn: makeClassicMap,  tag: 'built-in' },
-      { name: 'Split (Y-junction)',        fn: makeSplitMap,    tag: 'built-in' },
-      { name: 'Diamond (sync + detours)', fn: makeDiamondMap,  tag: 'built-in' },
-      { name: 'Circuit (fork + join)',     fn: makeCircuitMap,  tag: 'built-in' },
+      { name: 'Figure-eight',    fn: makeClassicMap,  tag: 'built-in' },
+      { name: 'Split (Y-junction)',   fn: makeSplitMap,    tag: 'built-in' },
+      { name: 'Diamond (sync + detours)', fn: makeDiamondMap, tag: 'built-in' },
+      { name: 'Circuit (fork + join)',  fn: makeCircuitMap,  tag: 'built-in' },
       // { name: 'Grid (10×10 = 100 places)', fn: makeGridMap, tag: 'built-in' },
     ];
     let mapIdx = 0;
@@ -184,6 +184,8 @@ the ?map= query parameter on startup.
     (window as any)._forceRender = () => render(rnd, eng);
 
     canvas.addEventListener('click', (e: MouseEvent) => {
+      const hint = document.getElementById('startup-hint');
+      if (hint) hint.style.opacity = '0';
       if (eng.phase !== 'player') return;
       const rect = canvas.getBoundingClientRect();
       const s = rect.width / DESIGN_W;
