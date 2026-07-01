@@ -1,8 +1,8 @@
 #Overview
 
-Petri Net Hack-Man (pn-pacman) is a browser game where the map is a Petri
+Petri Net Hack-Man (pn-chomper) is a browser game where the map is a Petri
 net. Tokens are the player's chomping icons. Transitions are doorways. Places
-are rooms. Arcs are corridors. The game runs for 10–20 minutes as casual fun
+are rooms. Arcs are corridors. The game is intended as casual fun
 and as a teaching tool for Petri net concepts.
 
 The key insight driving this design is that Petri net semantics already define
