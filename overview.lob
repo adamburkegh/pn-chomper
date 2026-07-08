@@ -1,6 +1,6 @@
 #Overview
 
-Petri Net Hack-Man (pn-chomper) is a browser game where the map is a Petri
+Petri Net Chomper (pn-chomper) is a browser game where the map is a Petri
 net. Tokens are the player's chomping icons. Transitions are doorways. Places
 are rooms. Arcs are corridors. The game is intended as casual fun
 and as a teaching tool for Petri net concepts.
@@ -49,12 +49,11 @@ Because the map is a real Petri net, the game teaches:
 - Token splitting (one chomper becomes two)
 - Token merging (two chompers must converge to fire a shared transition)
 
-##Future Plans
+##Future Ideas
 
-- Level editor: drag-and-drop Petri net construction that doubles as game design; exported maps are valid Petri nets
 - Soundness checking: highlight dead transitions (blocked corridors)
-- Timed transitions: doorways that close after N seconds
 - Coloured tokens: different chomper types with different abilities
+- Data guards: doorways that only open when you carry certain items (variables)
 - Export fired sequence as an event log (process mining hook)
 
 ---

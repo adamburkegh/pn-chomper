@@ -1,4 +1,4 @@
-#Pn Pacman
+#Pn Chomper
 
 A browser game where the map is a Petri net. Tokens are chompers.
 Transitions are doorways. Arcs are corridors.

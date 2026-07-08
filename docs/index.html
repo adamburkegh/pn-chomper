@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pn-chomper</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; overflow: hidden; }
+    canvas { position: fixed; top: 0; left: 0; transform-origin: top left; }
+    #instructions {
+      position: fixed; bottom: 12px; right: 12px;
+      color: #555; font: 11px monospace; text-align: right;
+      pointer-events: none;
+    }
+    #map-name {
+      position: fixed; top: 40px; left: 12px;
+      color: #ffe000; font: 13px monospace;
+      opacity: 0; transition: opacity 0.4s;
+      pointer-events: none;
+    }
+
+    /* Menu overlay */
+    #menu {
+      position: fixed; inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.78);
+      z-index: 10;
+    }
+    #menu-inner {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 20px 28px 16px;
+      min-width: 320px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #menu-items {
+      list-style: none;
+    }
+    #menu-items li {
+      font: 14px monospace;
+      padding: 7px 10px;
+      border-left: 2px solid transparent;
+    }
+    #menu-items li.section-header {
+      color: #ffe000;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 14px 10px 4px;
+      cursor: default;
+      border-left: none;
+    }
+    #menu-items li.section-header:first-child { padding-top: 2px; }
+    #menu-items li.action {
+      color: #777;
+      cursor: pointer;
+    }
+    #menu-items li.action:hover { color: #ccc; background: #222; }
+    #menu-items li.action.selected {
+      color: #ffe000;
+      background: #222;
+      border-left-color: #ffe000;
+    }
+    #menu-items li .tag {
+      font-size: 10px;
+      color: #555;
+      margin-left: 8px;
+    }
+    #menu-hint {
+      color: #444;
+      font: 11px monospace;
+      margin-top: 12px;
+      border-top: 1px solid #222;
+      padding-top: 10px;
+    }
+    #startup-hint {
+      position: fixed;
+      top: 50%; left: 0; right: 0;
+      transform: translateY(60px);
+      text-align: center;
+      color: #888;
+      font: 20px monospace;
+      pointer-events: none;
+      transition: opacity 0.5s;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <div id="instructions">
+    Click a glowing doorway to move your chomper ●<br>
+    Eat all the dots · Avoid the ghosts<br>
+    Esc — menu
+  </div>
+  <div id="map-name"></div>
+  <div id="startup-hint">Press Esc to load other maps, or click to play</div>
+  <div id="menu">
+    <div id="menu-inner">
+      <ul id="menu-items"></ul>
+      <p id="menu-hint">↑ ↓ &nbsp;navigate &nbsp;·&nbsp; Enter &nbsp;select &nbsp;·&nbsp; Esc &nbsp;close</p>
+    </div>
+  </div>
+  <script>
+(() => {
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __commonJS = (cb, mod) => function __require() {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  };
+  var require_game_main = __commonJS({
+    "dist/game_main.ts"() {
+      function makeNet() {
+        return { places: /* @__PURE__ */ new Map(), transitions: /* @__PURE__ */ new Map(), arcs: [] };
+      }
+      function addPlace(net, id, label, x, y) {
+        if (net.places.has(id)) throw new Error(`Place '${id}' already exists`);
+        const p = { id, label, x, y };
+        net.places.set(id, p);
+        return p;
+      }
+      function addTransition(net, id, label, x, y) {
+        if (net.transitions.has(id)) throw new Error(`Transition '${id}' already exists`);
+        const t = { id, label, x, y };
+        net.transitions.set(id, t);
+        return t;
+      }
+      function addArc(net, id, source, target, weight = 1) {
+        const srcIsPlace = net.places.has(source);
+        const srcIsTransition = net.transitions.has(source);
+        const tgtIsPlace = net.places.has(target);
+        const tgtIsTransition = net.transitions.has(target);
+        if (!srcIsPlace && !srcIsTransition)
+          throw new Error(`Arc source '${source}' not found`);
+        if (!tgtIsPlace && !tgtIsTransition)
+          throw new Error(`Arc target '${target}' not found`);
+        if (srcIsPlace && tgtIsPlace)
+          throw new Error(`Arc cannot connect two places`);
+        if (srcIsTransition && tgtIsTransition)
+          throw new Error(`Arc cannot connect two transitions`);
+        const arc = { id, source, target, weight };
+        net.arcs.push(arc);
+        return arc;
+      }
+      function inputArcs(net, transitionId) {
+        return net.arcs.filter(
+          (a) => a.target === transitionId && net.places.has(a.source)
+        );
+      }
+      function outputArcs(net, transitionId) {
+        return net.arcs.filter(
+          (a) => a.source === transitionId && net.places.has(a.target)
+        );
+      }
+      const _testNet = makeNet();
+      addPlace(_testNet, "p1", "Start", 0, 0);
+      addTransition(_testNet, "t1", "Door", 100, 0);
+      addPlace(_testNet, "p2", "Left", 200, -50);
+      addPlace(_testNet, "p3", "Right", 200, 50);
+      addArc(_testNet, "a1", "p1", "t1");
+      addArc(_testNet, "a2", "t1", "p2");
+      addArc(_testNet, "a3", "t1", "p3");
+      function gamePlace(net, id, label, x, y, hasDot = true) {
+        const p = addPlace(net, id, label, x, y);
+        p.hasDot = hasDot;
+        return p;
+      }
+      function makeClassicMap() {
+        const net = makeNet();
+        gamePlace(net, "c", "Centre", 467, 440, false);
+        gamePlace(net, "tl", "Top Left", 160, 200);
+        gamePlace(net, "tm", "Top Mid", 467, 130);
+        gamePlace(net, "tr", "Top Right", 774, 200);
+        gamePlace(net, "bl", "Bot Left", 160, 680);
+        gamePlace(net, "bm", "Bot Mid", 467, 750);
+        gamePlace(net, "br", "Bot Right", 774, 680);
+        addTransition(net, "tc", "Top-Centre", 300, 310);
+        addTransition(net, "tls", "Top-L Split", 280, 165);
+        addTransition(net, "tm_t", "Top-Mid Door", 660, 165);
+        addTransition(net, "trs", "Top-R Split", 640, 310);
+        addTransition(net, "bc", "Bot-Centre", 300, 570);
+        addTransition(net, "bls", "Bot-L Split", 280, 715);
+        addTransition(net, "bm_t", "Bot-Mid Door", 660, 715);
+        addTransition(net, "brs", "Bot-R Split", 640, 570);
+        addArc(net, "a1", "c", "tc");
+        addArc(net, "a2", "tc", "tl");
+        addArc(net, "a3", "tl", "tls");
+        addArc(net, "a4", "tls", "tm");
+        addArc(net, "a5", "tm", "tm_t");
+        addArc(net, "a6", "tm_t", "tr");
+        addArc(net, "a7", "tr", "trs");
+        addArc(net, "a8", "trs", "c");
+        addArc(net, "a9", "c", "bc");
+        addArc(net, "a10", "bc", "bl");
+        addArc(net, "a11", "bl", "bls");
+        addArc(net, "a12", "bls", "bm");
+        addArc(net, "a13", "bm", "bm_t");
+        addArc(net, "a14", "bm_t", "br");
+        addArc(net, "a15", "br", "brs");
+        addArc(net, "a16", "brs", "c");
+        return { net, ghostSpawns: ["tls"], playerStart: "c" };
+      }
+      function makeSplitMap() {
+        const net = makeNet();
+        gamePlace(net, "start", "Start", 120, 440, false);
+        gamePlace(net, "lobby", "Lobby", 350, 440);
+        gamePlace(net, "upper", "Upper Arm", 590, 260);
+        gamePlace(net, "lower", "Lower Arm", 590, 620);
+        gamePlace(net, "fin_up", "Finish Upper", 820, 180);
+        gamePlace(net, "fin_lo", "Finish Lower", 820, 700);
+        addTransition(net, "t_enter", "Enter", 235, 440);
+        addTransition(net, "t_fork", "Fork", 480, 440);
+        addTransition(net, "t_up", "Up Door", 710, 210);
+        addTransition(net, "t_lo", "Lo Door", 710, 670);
+        addTransition(net, "t_rst_u", "Restart Up", 350, 100);
+        addTransition(net, "t_rst_l", "Restart Lo", 350, 780);
+        addArc(net, "b1", "start", "t_enter");
+        addArc(net, "b2", "t_enter", "lobby");
+        addArc(net, "b3", "lobby", "t_fork");
+        addArc(net, "b4", "t_fork", "upper");
+        addArc(net, "b5", "t_fork", "lower");
+        addArc(net, "b6", "upper", "t_up");
+        addArc(net, "b7", "t_up", "fin_up");
+        addArc(net, "b8", "lower", "t_lo");
+        addArc(net, "b9", "t_lo", "fin_lo");
+        addArc(net, "b10", "fin_up", "t_rst_u");
+        addArc(net, "b11", "t_rst_u", "start");
+        addArc(net, "b12", "fin_lo", "t_rst_l");
+        addArc(net, "b13", "t_rst_l", "start");
+        return { net, ghostSpawns: ["t_up"], playerStart: "start" };
+      }
+      function makeDiamondMap() {
+        const net = makeNet();
+        gamePlace(net, "start", "Start", 80, 435, false);
+        gamePlace(net, "fin", "Finish", 870, 435, false);
+        gamePlace(net, "u1", "Upper In", 370, 235);
+        gamePlace(net, "u_side", "U-Side", 490, 120);
+        gamePlace(net, "u2", "Upper Out", 630, 235);
+        gamePlace(net, "l1", "Lower In", 370, 635);
+        gamePlace(net, "l_side", "L-Side", 490, 748);
+        gamePlace(net, "l2", "Lower Out", 630, 635);
+        addTransition(net, "t_fork", "Fork", 230, 435);
+        addTransition(net, "t_sync", "Sync", 730, 435);
+        addTransition(net, "t_rst", "Restart", 490, 30);
+        addTransition(net, "t_u_main", "U-Main", 500, 235);
+        addTransition(net, "t_u_in", "U-Det In", 425, 173);
+        addTransition(net, "t_u_out", "U-Det Out", 565, 177);
+        addTransition(net, "t_l_main", "L-Main", 500, 635);
+        addTransition(net, "t_l_in", "L-Det In", 425, 697);
+        addTransition(net, "t_l_out", "L-Det Out", 565, 697);
+        addArc(net, "d1", "start", "t_fork");
+        addArc(net, "d2", "t_fork", "u1");
+        addArc(net, "d3", "t_fork", "l1");
+        addArc(net, "d4", "u1", "t_u_main");
+        addArc(net, "d5", "t_u_main", "u2");
+        addArc(net, "d6", "u1", "t_u_in");
+        addArc(net, "d7", "t_u_in", "u_side");
+        addArc(net, "d8", "u_side", "t_u_out");
+        addArc(net, "d9", "t_u_out", "u2");
+        addArc(net, "d10", "l1", "t_l_main");
+        addArc(net, "d11", "t_l_main", "l2");
+        addArc(net, "d12", "l1", "t_l_in");
+        addArc(net, "d13", "t_l_in", "l_side");
+        addArc(net, "d14", "l_side", "t_l_out");
+        addArc(net, "d15", "t_l_out", "l2");
+        addArc(net, "d16", "u2", "t_sync");
+        addArc(net, "d17", "l2", "t_sync");
+        addArc(net, "d18", "t_sync", "fin");
+        addArc(net, "d19", "fin", "t_rst");
+        addArc(net, "d20", "t_rst", "start");
+        return { net, ghostSpawns: ["t_sync"], playerStart: "start" };
+      }
+      function makeCircuitMap() {
+        const net = makeNet();
+        gamePlace(net, "depot", "Depot", 80, 440, false);
+        gamePlace(net, "nw", "NW", 300, 240);
+        gamePlace(net, "nn", "North", 510, 160);
+        gamePlace(net, "ne", "NE", 720, 240);
+        gamePlace(net, "sw", "SW", 300, 640);
+        gamePlace(net, "ss", "South", 510, 720);
+        gamePlace(net, "se", "SE", 720, 640);
+        gamePlace(net, "east", "East", 880, 440);
+        gamePlace(net, "mid", "Mid", 490, 440);
+        addTransition(net, "t_fork", "Fork", 200, 440);
+        addTransition(net, "t_nw_nn", "NW\u2192N", 405, 200);
+        addTransition(net, "t_nn_ne", "N\u2192NE", 615, 200);
+        addTransition(net, "t_sw_ss", "SW\u2192S", 405, 680);
+        addTransition(net, "t_ss_se", "S\u2192SE", 615, 680);
+        addTransition(net, "t_sync", "Sync", 800, 440);
+        addTransition(net, "t_rst", "Restart", 490, 80);
+        addTransition(net, "t_ne_mid", "NE\u2192Mid", 620, 330);
+        addTransition(net, "t_se_mid", "SE\u2192Mid", 620, 550);
+        addTransition(net, "t_mid_dep", "Mid\u2192Home", 285, 380);
+        addArc(net, "c1", "depot", "t_fork");
+        addArc(net, "c2", "t_fork", "nw");
+        addArc(net, "c3", "t_fork", "sw");
+        addArc(net, "c4", "nw", "t_nw_nn");
+        addArc(net, "c5", "t_nw_nn", "nn");
+        addArc(net, "c6", "nn", "t_nn_ne");
+        addArc(net, "c7", "t_nn_ne", "ne");
+        addArc(net, "c8", "sw", "t_sw_ss");
+        addArc(net, "c9", "t_sw_ss", "ss");
+        addArc(net, "c10", "ss", "t_ss_se");
+        addArc(net, "c11", "t_ss_se", "se");
+        addArc(net, "c12", "ne", "t_sync");
+        addArc(net, "c13", "se", "t_sync");
+        addArc(net, "c14", "t_sync", "east");
+        addArc(net, "c15", "east", "t_rst");
+        addArc(net, "c16", "t_rst", "depot");
+        addArc(net, "c17", "ne", "t_ne_mid");
+        addArc(net, "c18", "t_ne_mid", "mid");
+        addArc(net, "c19", "se", "t_se_mid");
+        addArc(net, "c20", "t_se_mid", "mid");
+        addArc(net, "c21", "mid", "t_mid_dep");
+        addArc(net, "c22", "t_mid_dep", "depot");
+        return { net, ghostSpawns: ["t_sync"], playerStart: "depot" };
+      }
+      function emptyMarking() {
+        return /* @__PURE__ */ new Map();
+      }
+      function tokenCount(m, placeId) {
+        return m.get(placeId) ?? 0;
+      }
+      function markingAddTokens(m, placeId, count) {
+        m.set(placeId, (m.get(placeId) ?? 0) + count);
+      }
+      function markingRemoveTokens(m, placeId, count) {
+        const current = m.get(placeId) ?? 0;
+        if (current < count) throw new Error(
+          `Cannot remove ${count} tokens from '${placeId}' \u2014 only ${current} present`
+        );
+        m.set(placeId, current - count);
+      }
+      function isEnabled(net, marking, transitionId) {
+        return inputArcs(net, transitionId).every(
+          (arc) => tokenCount(marking, arc.source) >= arc.weight
+        );
+      }
+      function fire(net, marking, transitionId) {
+        if (!isEnabled(net, marking, transitionId))
+          throw new Error(`Transition '${transitionId}' is not enabled`);
+        const next = new Map(marking);
+        for (const arc of inputArcs(net, transitionId))
+          markingRemoveTokens(next, arc.source, arc.weight);
+        for (const arc of outputArcs(net, transitionId))
+          markingAddTokens(next, arc.target, arc.weight);
+        return next;
+      }
+      function enabledTransitions(net, marking) {
+        return [...net.transitions.keys()].filter((id) => isEnabled(net, marking, id));
+      }
+      const _m0 = emptyMarking();
+      markingAddTokens(_m0, "p1", 1);
+      const _m1 = fire(_testNet, _m0, "t1");
+      function initState(gn2, lives = 3) {
+        const chompers = emptyMarking();
+        markingAddTokens(chompers, gn2.playerStart, 1);
+        const ghosts = emptyMarking();
+        for (const spawnId of gn2.ghostSpawns) {
+          const outgoing = outputArcs(gn2.net, spawnId);
+          if (outgoing.length > 0)
+            markingAddTokens(ghosts, outgoing[0].target, 1);
+        }
+        const dots = new Set(
+          [...gn2.net.places.values()].filter((p) => p.hasDot).map((p) => p.id)
+        );
+        return { gn: gn2, chompers, ghosts, dots, score: 0, lives };
+      }
+      function eatDots(state) {
+        for (const [placeId, count] of state.chompers) {
+          if (count > 0 && state.dots.has(placeId)) {
+            state.dots.delete(placeId);
+            state.score += 10;
+          }
+        }
+      }
+      function resolveCollisions(state) {
+        const eaten = [];
+        for (const [placeId, count] of state.chompers) {
+          if (count > 0 && (state.ghosts.get(placeId) ?? 0) > 0)
+            eaten.push(placeId);
+        }
+        if (eaten.length === 0) return;
+        for (const placeId of eaten)
+          markingRemoveTokens(state.chompers, placeId, 1);
+        const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
+        if (total > 0) return;
+        state.lives -= 1;
+        state.chompers.clear();
+        markingAddTokens(state.chompers, state.gn.playerStart, 1);
+        state.ghosts.clear();
+        for (const spawnId of state.gn.ghostSpawns) {
+          const outgoing = outputArcs(state.gn.net, spawnId);
+          if (outgoing.length > 0)
+            markingAddTokens(state.ghosts, outgoing[0].target, 1);
+        }
+      }
+      function isWon(state) {
+        return state.dots.size === 0;
+      }
+      function isLost(state) {
+        return state.lives <= 0;
+      }
+      const _crossGn = makeCircuitMap();
+      const _s0 = initState(_crossGn);
+      function makeEngine(gn2) {
+        return { state: initState(gn2), phase: "player" };
+      }
+      function playerMove(engine, transitionId) {
+        if (engine.phase !== "player") return;
+        const { state } = engine;
+        const net = state.gn.net;
+        if (!net.transitions.has(transitionId)) return;
+        if (!isEnabled(net, state.chompers, transitionId)) return;
+        state.chompers = fire(net, state.chompers, transitionId);
+        eatDots(state);
+        const livesBefore = state.lives;
+        resolveCollisions(state);
+        if (isLost(state)) {
+          engine.phase = "lost";
+          return;
+        }
+        if (state.lives < livesBefore) {
+          engine.phase = "player";
+          return;
+        }
+        if (isWon(state)) {
+          engine.phase = "won";
+          return;
+        }
+        engine.phase = "ghost";
+      }
+      function ghostTurn(engine) {
+        if (engine.phase !== "ghost") return;
+        const { state } = engine;
+        const net = state.gn.net;
+        const enabled = enabledTransitions(net, state.ghosts);
+        if (enabled.length > 0) {
+          const pick = enabled[Math.floor(Math.random() * enabled.length)];
+          state.ghosts = fire(net, state.ghosts, pick);
+        }
+        resolveCollisions(state);
+        if (isLost(state)) {
+          engine.phase = "lost";
+          return;
+        }
+        engine.phase = "player";
+      }
+      function playerEnabledTransitions(engine) {
+        return enabledTransitions(engine.state.gn.net, engine.state.chompers);
+      }
+      function makeRenderer(canvas2) {
+        const ctx = canvas2.getContext("2d");
+        if (!ctx) throw new Error("Cannot get 2D context");
+        return { canvas: canvas2, ctx };
+      }
+      function clearCanvas(r) {
+        r.ctx.fillStyle = "#111";
+        r.ctx.fillRect(0, 0, r.canvas.width, r.canvas.height);
+      }
+      function drawCorridor(ctx, x1, y1, x2, y2) {
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        const len = Math.hypot(x2 - x1, y2 - y1);
+        const margin = Math.min(28, Math.max(8, len * 0.3));
+        const cw = Math.min(16, Math.max(4, len * 0.18));
+        const sx = x1 + Math.cos(angle) * margin;
+        const sy = y1 + Math.sin(angle) * margin;
+        const ex = x2 - Math.cos(angle) * margin;
+        const ey = y2 - Math.sin(angle) * margin;
+        if (len < 20) return;
+        const px = -Math.sin(angle);
+        const py = Math.cos(angle);
+        ctx.beginPath();
+        ctx.moveTo(sx + px * cw, sy + py * cw);
+        ctx.lineTo(ex + px * cw, ey + py * cw);
+        ctx.lineTo(ex - px * cw, ey - py * cw);
+        ctx.lineTo(sx - px * cw, sy - py * cw);
+        ctx.closePath();
+        ctx.fillStyle = "#1e1e1e";
+        ctx.fill();
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.strokeStyle = "#2a2a2a";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        const ah = 14;
+        ctx.beginPath();
+        ctx.moveTo(ex + Math.cos(angle) * ah, ey + Math.sin(angle) * ah);
+        ctx.lineTo(ex + px * 7, ey + py * 7);
+        ctx.lineTo(ex - px * 7, ey - py * 7);
+        ctx.closePath();
+        ctx.fillStyle = "#444";
+        ctx.fill();
+      }
+      function drawPlace(ctx, p, hasDot, chompers, ghosts, radius = 24) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fill();
+        ctx.strokeStyle = chompers > 0 ? "#555" : "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        if (hasDot && chompers === 0) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+          ctx.fillStyle = "#ffee88";
+          ctx.fill();
+        }
+        for (let j = 0; j < ghosts; j++) {
+          const ox = (j - (ghosts - 1) / 2) * 16;
+          const oy = chompers > 0 ? 8 : 0;
+          drawGhost(ctx, p.x + ox, p.y + oy, 9);
+        }
+        for (let i = 0; i < chompers; i++) {
+          const ox = (i - (chompers - 1) / 2) * 16;
+          const oy = ghosts > 0 ? -7 : 0;
+          drawChomper(ctx, p.x + ox, p.y + oy, 10);
+        }
+        ctx.fillStyle = "#666";
+        ctx.font = "10px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(p.label, p.x, p.y + radius + 13);
+      }
+      function drawChomper(ctx, x, y, r) {
+        const mouth = 0.35;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.arc(x, y, r, mouth, Math.PI * 2 - mouth);
+        ctx.closePath();
+        ctx.fillStyle = "#ffe000";
+        ctx.fill();
+      }
+      function drawGhost(ctx, x, y, r) {
+        ctx.beginPath();
+        ctx.arc(x, y - r * 0.2, r, Math.PI, 0);
+        ctx.lineTo(x + r, y + r * 0.8);
+        const steps = 3;
+        for (let i = 0; i < steps; i++) {
+          const cx2 = x + r - r * 2 / steps * (i + 0.5);
+          const dir = i % 2 === 0 ? 1 : -1;
+          ctx.quadraticCurveTo(
+            cx2,
+            y + r * 0.8 + dir * r * 0.4,
+            x + r - r * 2 / steps * (i + 1),
+            y + r * 0.8
+          );
+        }
+        ctx.closePath();
+        ctx.fillStyle = "#cc44ff";
+        ctx.fill();
+      }
+      function transitionKind(net, id) {
+        if (outputArcs(net, id).length > 1) return "fork";
+        if (inputArcs(net, id).length > 1) return "join";
+        return "regular";
+      }
+      function drawTransition(ctx, t, enabled, kind) {
+        const w = 18, h = 40;
+        const palette = {
+          fork: { bg: enabled ? "#552200" : "#1e0d00", border: enabled ? "#ff8800" : "#cc5500" },
+          join: { bg: enabled ? "#003344" : "#001520", border: enabled ? "#00ccff" : "#0088bb" },
+          regular: { bg: enabled ? "#554400" : "#1a1a1a", border: enabled ? "#ffe000" : "#444" }
+        };
+        const { bg, border } = palette[kind];
+        ctx.fillStyle = bg;
+        ctx.strokeStyle = border;
+        ctx.lineWidth = enabled ? 3 : kind === "regular" ? 1 : 2;
+        ctx.beginPath();
+        ctx.rect(t.x - w / 2, t.y - h / 2, w, h);
+        ctx.fill();
+        ctx.stroke();
+        if (kind === "fork") {
+          ctx.strokeStyle = enabled ? "#ffaa44" : "#995522";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(t.x - 3, t.y - 6);
+          ctx.lineTo(t.x + 4, t.y);
+          ctx.lineTo(t.x - 3, t.y + 6);
+          ctx.stroke();
+        } else if (kind === "join") {
+          ctx.strokeStyle = enabled ? "#44ddff" : "#006688";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(t.x + 3, t.y - 6);
+          ctx.lineTo(t.x - 4, t.y);
+          ctx.lineTo(t.x + 3, t.y + 6);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#666";
+        ctx.font = "9px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(t.label.slice(0, 8), t.x, t.y + h / 2 + 12);
+      }
+      function render(r, engine) {
+        clearCanvas(r);
+        const { state } = engine;
+        const net = state.gn.net;
+        const ctx = r.ctx;
+        const nodeRadius = state.gn.nodeRadius ?? 24;
+        const enabledIds = new Set(
+          engine.phase === "player" ? playerEnabledTransitions(engine) : []
+        );
+        for (const arc of net.arcs) {
+          const src = net.places.get(arc.source) ?? net.transitions.get(arc.source);
+          const tgt = net.places.get(arc.target) ?? net.transitions.get(arc.target);
+          if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y);
+        }
+        for (const t of net.transitions.values()) {
+          drawTransition(ctx, t, enabledIds.has(t.id), transitionKind(net, t.id));
+        }
+        for (const p of net.places.values()) {
+          const gp = p;
+          drawPlace(
+            ctx,
+            p,
+            gp.hasDot && state.dots.has(p.id),
+            tokenCount(state.chompers, p.id),
+            tokenCount(state.ghosts, p.id),
+            nodeRadius
+          );
+        }
+        ctx.fillStyle = "#ccc";
+        ctx.font = "15px monospace";
+        ctx.textAlign = "left";
+        ctx.fillText(`Score: ${state.score}   Lives: ${state.lives}`, 12, 24);
+        if (engine.phase === "won") {
+          ctx.fillStyle = "rgba(0,0,0,0.55)";
+          ctx.fillRect(0, 0, r.canvas.width, r.canvas.height);
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#ffe000";
+          ctx.font = "bold 64px monospace";
+          ctx.fillText("YOU WIN", r.canvas.width / 2, r.canvas.height / 2 - 10);
+          ctx.fillStyle = "#888";
+          ctx.font = "18px monospace";
+          ctx.fillText("press R to restart", r.canvas.width / 2, r.canvas.height / 2 + 30);
+        }
+        if (engine.phase === "lost") {
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.fillRect(0, 0, r.canvas.width, r.canvas.height);
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#cc0000";
+          ctx.font = "bold 80px monospace";
+          ctx.fillText("GAME OVER", r.canvas.width / 2, r.canvas.height / 2 - 16);
+          ctx.fillStyle = "#ff4444";
+          ctx.font = "bold 28px monospace";
+          ctx.fillText(`${state.lives} ${state.lives === 1 ? "life" : "lives"} remaining`, r.canvas.width / 2, r.canvas.height / 2 + 30);
+          ctx.fillStyle = "#666";
+          ctx.font = "18px monospace";
+          ctx.fillText("press R to restart", r.canvas.width / 2, r.canvas.height / 2 + 62);
+        }
+      }
+      function exportPNML(gn2, netName) {
+        const { net } = gn2;
+        const lines = [];
+        lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+        lines.push('<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">');
+        lines.push(`  <net id="pn-chomper" type="http://www.pnml.org/version-2009/grammar/ptnet">`);
+        lines.push(`    <name><text>${escXml(netName)}</text></name>`);
+        lines.push('    <toolspecific tool="pn-chomper" version="1.0">');
+        if (gn2.nodeRadius !== void 0) {
+          lines.push(`      <nodeRadius>${gn2.nodeRadius}</nodeRadius>`);
+        }
+        lines.push("    </toolspecific>");
+        lines.push('    <page id="page1">');
+        for (const p of net.places.values()) {
+          const gp = p;
+          lines.push(`      <place id="${escXml(p.id)}">`);
+          lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
+          lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
+          const marking = p.id === gn2.playerStart ? 1 : 0;
+          lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
+          lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
+          if (p.id === gn2.playerStart) lines.push("          <playerStart/>");
+          if (!gp.hasDot) lines.push("          <hasDot>false</hasDot>");
+          lines.push("        </toolspecific>");
+          lines.push("      </place>");
+        }
+        for (const t of net.transitions.values()) {
+          lines.push(`      <transition id="${escXml(t.id)}">`);
+          lines.push(`        <name><text>${escXml(t.label)}</text></name>`);
+          lines.push(`        <graphics><position x="${t.x}" y="${t.y}"/></graphics>`);
+          if (gn2.ghostSpawns.includes(t.id)) {
+            lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
+            lines.push("          <ghostSpawn/>");
+            lines.push("        </toolspecific>");
+          }
+          lines.push("      </transition>");
+        }
+        for (const arc of net.arcs) {
+          lines.push(`      <arc id="${escXml(arc.id)}" source="${escXml(arc.source)}" target="${escXml(arc.target)}">`);
+          lines.push(`        <inscription><text>${arc.weight}</text></inscription>`);
+          lines.push("      </arc>");
+        }
+        lines.push("    </page>");
+        lines.push("  </net>");
+        lines.push("</pnml>");
+        return lines.join("\n");
+      }
+      function escXml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      function importPNML(xmlString) {
+        const doc = new DOMParser().parseFromString(xmlString, "application/xml");
+        if (doc.querySelector("parsererror"))
+          throw new Error("PNML parse error");
+        function nodeText(el, sel) {
+          return el.querySelector(sel)?.textContent?.trim() ?? "";
+        }
+        function nodePos(el) {
+          const p = el.querySelector("graphics > position");
+          return { x: parseFloat(p?.getAttribute("x") ?? "0"), y: parseFloat(p?.getAttribute("y") ?? "0") };
+        }
+        const rawPlaces = [];
+        for (const el of doc.querySelectorAll("place")) {
+          const id = el.getAttribute("id") ?? "";
+          const ts = el.querySelector('toolspecific[tool="pn-chomper"]');
+          rawPlaces.push({
+            id,
+            label: nodeText(el, "name > text") || id,
+            ...nodePos(el),
+            hasDot: ts ? ts.querySelector("hasDot")?.textContent?.trim() !== "false" : true,
+            isStart: !!ts?.querySelector("playerStart"),
+            marking: parseInt(nodeText(el, "initialMarking > text") || "0", 10)
+          });
+        }
+        const rawTrans = [];
+        for (const el of doc.querySelectorAll("transition")) {
+          const id = el.getAttribute("id") ?? "";
+          const ts = el.querySelector('toolspecific[tool="pn-chomper"]');
+          rawTrans.push({
+            id,
+            label: nodeText(el, "name > text") || id,
+            ...nodePos(el),
+            isSpawn: !!ts?.querySelector("ghostSpawn")
+          });
+        }
+        const allX = [...rawPlaces, ...rawTrans].map((n) => n.x);
+        const allY = [...rawPlaces, ...rawTrans].map((n) => n.y);
+        const minX = Math.min(...allX), maxX = Math.max(...allX);
+        const minY = Math.min(...allY), maxY = Math.max(...allY);
+        const PAD = 80, CW = 950, CH = 780;
+        const sc = Math.min(
+          maxX > minX ? (CW - 2 * PAD) / (maxX - minX) : 1,
+          maxY > minY ? (CH - 2 * PAD) / (maxY - minY) : 1
+        );
+        const fx = (x) => (x - minX) * sc + PAD;
+        const fy = (y) => (y - minY) * sc + PAD;
+        const net = makeNet();
+        for (const p of rawPlaces) {
+          const gp = addPlace(net, p.id, p.label, fx(p.x), fy(p.y));
+          gp.hasDot = p.hasDot;
+        }
+        for (const t of rawTrans) {
+          addTransition(net, t.id, t.label, fx(t.x), fy(t.y));
+        }
+        for (const el of doc.querySelectorAll("arc")) {
+          const id = el.getAttribute("id") ?? "";
+          const src = el.getAttribute("source") ?? "";
+          const tgt = el.getAttribute("target") ?? "";
+          const w = parseInt(el.querySelector("inscription > text")?.textContent?.trim() ?? "1", 10);
+          try {
+            addArc(net, id, src, tgt, w);
+          } catch {
+          }
+        }
+        const playerStart = rawPlaces.find((p) => p.isStart)?.id ?? rawPlaces.find((p) => p.marking > 0)?.id ?? rawPlaces[0]?.id ?? "";
+        const ghostSpawns = rawTrans.filter((t) => t.isSpawn).map((t) => t.id);
+        const nrText = doc.querySelector('net > toolspecific[tool="pn-chomper"] > nodeRadius')?.textContent?.trim();
+        const nodeRadius = nrText ? parseInt(nrText, 10) : void 0;
+        return { net, playerStart, ghostSpawns, ...nodeRadius !== void 0 ? { nodeRadius } : {} };
+      }
+      function downloadPNML(gn2, name) {
+        const xml = exportPNML(gn2, name);
+        const blob = new Blob([xml], { type: "application/xml" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name.replace(/[^a-z0-9]/gi, "_").toLowerCase() + ".pnml";
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      function hitTestTransition(net, x, y) {
+        for (const t of net.transitions.values()) {
+          const dx = Math.abs(x - t.x);
+          const dy = Math.abs(y - t.y);
+          if (dx < 14 && dy < 25) return t.id;
+        }
+        return null;
+      }
+      const mapList = [
+        { name: "Figure-eight", fn: makeClassicMap, tag: "built-in" },
+        { name: "Split (Y-junction)", fn: makeSplitMap, tag: "built-in" },
+        { name: "Diamond (sync + detours)", fn: makeDiamondMap, tag: "built-in" },
+        { name: "Circuit (fork + join)", fn: makeCircuitMap, tag: "built-in" }
+        // { name: 'Grid (10×10 = 100 places)', fn: makeGridMap, tag: 'built-in' },
+      ];
+      let mapIdx = 0;
+      const canvas = document.getElementById("game-canvas");
+      const DESIGN_W = 950;
+      const DESIGN_H = 780;
+      canvas.width = DESIGN_W;
+      canvas.height = DESIGN_H;
+      function applyScale() {
+        const w = window.innerWidth || document.documentElement.clientWidth || DESIGN_W;
+        const h = window.innerHeight || document.documentElement.clientHeight || DESIGN_H;
+        const s = Math.min(w / DESIGN_W, h / DESIGN_H);
+        canvas.style.transform = `scale(${s})`;
+      }
+      applyScale();
+      const rnd = makeRenderer(canvas);
+      let gn = mapList[0].fn();
+      let eng = makeEngine(gn);
+      function showMapName(name) {
+        const el = document.getElementById("map-name");
+        if (el) {
+          el.textContent = name;
+          el.style.opacity = "1";
+        }
+        setTimeout(() => {
+          if (el) el.style.opacity = "0";
+        }, 2e3);
+      }
+      function selectMap(i) {
+        mapIdx = i;
+        gn = mapList[i].fn();
+        eng = makeEngine(gn);
+        showMapName(mapList[i].name);
+      }
+      let menuItems = [];
+      let menuSel = 0;
+      function buildMenuItems() {
+        menuItems = [
+          { kind: "header", label: "Game" },
+          { kind: "action", label: "Restart", run: () => {
+            eng = makeEngine(gn);
+          } },
+          { kind: "action", label: "Export PNML", run: () => downloadPNML(gn, mapList[mapIdx].name) },
+          { kind: "action", label: "Load PNML file\u2026", run: () => {
+            hideMenu();
+            pnmlInput.click();
+          } },
+          { kind: "header", label: "Maps" },
+          ...mapList.map((entry, i) => ({
+            kind: "action",
+            label: entry.name,
+            tag: entry.tag,
+            run: () => selectMap(i)
+          }))
+        ];
+      }
+      function menuActions() {
+        return menuItems.filter((m) => m.kind === "action");
+      }
+      function renderMenu() {
+        const ul = document.getElementById("menu-items");
+        ul.innerHTML = "";
+        const actions = menuActions();
+        const selected = actions[menuSel];
+        let ai = 0;
+        for (const item of menuItems) {
+          const li = document.createElement("li");
+          if (item.kind === "header") {
+            li.className = "section-header";
+            li.textContent = item.label;
+          } else {
+            li.className = "action" + (item === selected ? " selected" : "");
+            li.innerHTML = escXml(item.label) + (item.tag ? `<span class="tag">${item.tag}</span>` : "");
+            const idx = ai++;
+            li.addEventListener("click", () => {
+              menuSel = idx;
+              actions[idx].run();
+              hideMenu();
+            });
+          }
+          ul.appendChild(li);
+        }
+      }
+      function showMenu() {
+        buildMenuItems();
+        renderMenu();
+        document.getElementById("menu").style.display = "flex";
+      }
+      function hideMenu() {
+        document.getElementById("menu").style.display = "none";
+      }
+      const pnmlInput = document.createElement("input");
+      pnmlInput.type = "file";
+      pnmlInput.accept = ".pnml,.xml";
+      pnmlInput.style.display = "none";
+      document.body.appendChild(pnmlInput);
+      pnmlInput.addEventListener("change", () => {
+        const file = pnmlInput.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const loaded = importPNML(ev.target.result);
+            const name = file.name.replace(/\.(pnml|xml)$/i, "");
+            mapList.push({ name, tag: "loaded", fn: () => loaded });
+            selectMap(mapList.length - 1);
+          } catch (err) {
+            console.error("PNML load failed:", err);
+          }
+        };
+        reader.readAsText(file);
+        pnmlInput.value = "";
+      });
+      (async () => {
+        const mapUrl = new URLSearchParams(location.search).get("map");
+        if (!mapUrl) return;
+        try {
+          const xml = await fetch(mapUrl).then((r) => r.text());
+          const loaded = importPNML(xml);
+          const name = mapUrl.split("/").pop()?.replace(/\.(pnml|xml)$/i, "") ?? "loaded";
+          mapList.push({ name, tag: "loaded", fn: () => loaded });
+          selectMap(mapList.length - 1);
+        } catch (err) {
+          console.error("?map= load failed:", err);
+        }
+      })();
+      function loop() {
+        render(rnd, eng);
+        requestAnimationFrame(loop);
+      }
+      loop();
+      window._forceRender = () => render(rnd, eng);
+      canvas.addEventListener("click", (e) => {
+        const hint = document.getElementById("startup-hint");
+        if (hint) hint.style.opacity = "0";
+        if (eng.phase !== "player") return;
+        const rect = canvas.getBoundingClientRect();
+        const s = rect.width / DESIGN_W;
+        const x = (e.clientX - rect.left) / s;
+        const y = (e.clientY - rect.top) / s;
+        const tid = hitTestTransition(gn.net, x, y);
+        if (tid) {
+          playerMove(eng, tid);
+          setTimeout(() => ghostTurn(eng), 400);
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        const menuOpen = document.getElementById("menu").style.display !== "none";
+        if (menuOpen) {
+          const actions = menuActions();
+          if (e.key === "ArrowDown") {
+            menuSel = (menuSel + 1) % actions.length;
+            renderMenu();
+          } else if (e.key === "ArrowUp") {
+            menuSel = (menuSel - 1 + actions.length) % actions.length;
+            renderMenu();
+          } else if (e.key === "Enter") {
+            actions[menuSel].run();
+            hideMenu();
+          } else if (e.key === "Escape") {
+            hideMenu();
+          }
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "Escape") {
+          showMenu();
+        }
+        if (e.key === "r" || e.key === "R") {
+          eng = makeEngine(gn);
+        }
+      });
+      window.addEventListener("resize", () => {
+        applyScale();
+      });
+    }
+  });
+  require_game_main();
+})();
+
+</script>
+</body>
+</html>

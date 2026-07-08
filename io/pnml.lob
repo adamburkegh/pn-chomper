@@ -20,11 +20,11 @@ playerStart, and there are no ghost spawns.
 
       lines.push('<?xml version="1.0" encoding="UTF-8"?>');
       lines.push('<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">');
-      lines.push(`  <net id="pn-pacman" type="http://www.pnml.org/version-2009/grammar/ptnet">`);
+      lines.push(`  <net id="pn-chomper" type="http://www.pnml.org/version-2009/grammar/ptnet">`);
       lines.push(`    <name><text>${escXml(netName)}</text></name>`);
 
       // Net-level toolspecific
-      lines.push('    <toolspecific tool="pn-pacman" version="1.0">');
+      lines.push('    <toolspecific tool="pn-chomper" version="1.0">');
       if (gn.nodeRadius !== undefined) {
         lines.push(`      <nodeRadius>${gn.nodeRadius}</nodeRadius>`);
       }
@@ -40,7 +40,7 @@ playerStart, and there are no ghost spawns.
         lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
         const marking = p.id === gn.playerStart ? 1 : 0;
         lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
-        lines.push('        <toolspecific tool="pn-pacman" version="1.0">');
+        lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
         if (p.id === gn.playerStart) lines.push('          <playerStart/>');
         if (!gp.hasDot)             lines.push('          <hasDot>false</hasDot>');
         lines.push('        </toolspecific>');
@@ -53,7 +53,7 @@ playerStart, and there are no ghost spawns.
         lines.push(`        <name><text>${escXml(t.label)}</text></name>`);
         lines.push(`        <graphics><position x="${t.x}" y="${t.y}"/></graphics>`);
         if (gn.ghostSpawns.includes(t.id)) {
-          lines.push('        <toolspecific tool="pn-pacman" version="1.0">');
+          lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
           lines.push('          <ghostSpawn/>');
           lines.push('        </toolspecific>');
         }
@@ -100,7 +100,7 @@ playerStart, and there are no ghost spawns.
       const rawPlaces: RawPlace[] = [];
       for (const el of doc.querySelectorAll('place')) {
         const id = el.getAttribute('id') ?? '';
-        const ts = el.querySelector('toolspecific[tool="pn-pacman"]');
+        const ts = el.querySelector('toolspecific[tool="pn-chomper"]');
         rawPlaces.push({
           id, label: nodeText(el, 'name > text') || id,
           ...nodePos(el),
@@ -113,7 +113,7 @@ playerStart, and there are no ghost spawns.
       const rawTrans: RawTrans[] = [];
       for (const el of doc.querySelectorAll('transition')) {
         const id = el.getAttribute('id') ?? '';
-        const ts = el.querySelector('toolspecific[tool="pn-pacman"]');
+        const ts = el.querySelector('toolspecific[tool="pn-chomper"]');
         rawTrans.push({
           id, label: nodeText(el, 'name > text') || id,
           ...nodePos(el),
@@ -157,7 +157,7 @@ playerStart, and there are no ghost spawns.
 
       const ghostSpawns = rawTrans.filter(t => t.isSpawn).map(t => t.id);
 
-      const nrText = doc.querySelector('net > toolspecific[tool="pn-pacman"] > nodeRadius')
+      const nrText = doc.querySelector('net > toolspecific[tool="pn-chomper"] > nodeRadius')
                        ?.textContent?.trim();
       const nodeRadius = nrText ? parseInt(nrText, 10) : undefined;
 

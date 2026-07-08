@@ -1,5 +1,5 @@
 /**
- * inject-bundle.ts — notlob ~on-build hook for pn-pacman.
+ * inject-bundle.ts — notlob ~on-build hook for pn-chomper.
  *
  * Reads the JSON manifest supplied by notlob, bundles the main.ts
  * artifact with esbuild, and injects the result as an inline <script>
@@ -73,6 +73,12 @@ async function main(): Promise<void> {
   const outHtml = path.join(outputDir, 'index.html');
   fs.writeFileSync(outHtml, injected, 'utf8');
   console.log(`inject-bundle: wrote ${path.relative(projectRoot, outHtml)}`);
+
+  const docsDir  = path.join(projectRoot, 'docs');
+  const docsHtml = path.join(docsDir, 'index.html');
+  fs.mkdirSync(docsDir, { recursive: true });
+  fs.copyFileSync(outHtml, docsHtml);
+  console.log(`inject-bundle: copied to ${path.relative(projectRoot, docsHtml)}`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });

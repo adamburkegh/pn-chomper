@@ -1,4 +1,4 @@
-# Pn Pacman
+# PN Chomper
 
 A notlob literate programming project.
 

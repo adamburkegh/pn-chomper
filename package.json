@@ -1,7 +1,7 @@
 {
-  "name": "pn-pacman",
+  "name": "pn-chomper",
   "version": "1.0.0",
-  "description": "This is a browser game inspired by arcade classics like Pac-Man. The maps are Petri nets.",
+  "description": "A browser game where the map is a Petri net.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
