@@ -1,11 +1,11 @@
 #Overview
 
-Petri Net Chomper (pn-chomper) is a browser game where the map is a Petri
-net. Tokens are the player's chomping icons. Transitions are doorways. Places
+Petri Net Chomper (pn-chomper) is a browser game where the map is a #Petri Net.
+Tokens are the player's chomping icons. Transitions are doorways. Places
 are rooms. Arcs are corridors. The game is intended as casual fun
 and as a teaching tool for Petri net concepts.
 
-The key insight driving this design is that Petri net semantics already define
+The key insight driving this design is that #Petri Net semantics already define
 the movement rules. A token moves from a place through an enabled transition
 into one or more output places — that is exactly what a game character does
 when walking through a doorway into a room. When a transition has multiple
@@ -20,23 +20,29 @@ Source is organised as notlob modules, one concept per file.
 
 Module map (addresses are notlob module paths):
 
-- petri/net       — core Petri net data model (places, transitions, arcs)
-- petri/marking   — marking (token distribution) and firing semantics
-- game/map        — built-in game maps as Petri net definitions
-- game/state      — live game state (token positions, score, ghosts)
-- game/engine     — game loop, input handling, win/lose detection
-- render/canvas   — canvas renderer, HUD, and all game entities
-- io/pnml         — PNML export and import
-- game/main       — entry point, wires modules together
+- #Petri Net     — core data model (places, transitions, arcs)
+- #Petri Marking — token distribution and firing semantics
+- #Game Map      — built-in maps as Petri net definitions
+- #Game State    — live game state (token positions, score, ghosts)
+- #Game Engine   — game loop, input handling, win/lose detection
+- render/canvas  — canvas renderer, HUD, and all game entities
+- #IO PNML       — PNML export and import; external nets load via `?map=` URL
+- game/main      — entry point, wires modules together
 
 ##Game Mechanics
 
 Chompers are tokens. Each one lives in a Place. On each turn the player
 selects an enabled transition adjacent to one of their tokens; that token
-fires through the transition and arrives in the output place(s). If the
-transition has two output arcs, a new token is born — the player gains a
-chomper. Dots in places are eaten on entry. Ghosts are autonomous tokens
-that fire enabled transitions at random, moving toward the player.
+fires through the transition and arrives in the output place(s). Token
+distribution and enabling are tracked by #Petri Marking. If the transition
+has two output arcs, a new token is born — the player gains a chomper. Dots
+in places are eaten on entry. The #Game Engine drives the game loop and ghost
+AI. The live GameState — score, token positions, dot state — is held in #Game State.
+Ghosts are autonomous tokens that fire enabled transitions at random.
+
+Each built-in level is a GameNet value defined in #Game Map. External Petri
+nets can be loaded via importPNML from #IO PNML, either from a local file
+or via a `?map=` URL.
 
 ##Petri Net as Pedagogy
 
@@ -59,3 +65,9 @@ Because the map is a real Petri net, the game teaches:
 ---
 
 #References
+    #Petri Net
+    #Petri Marking
+    #Game Map
+    #Game State
+    #Game Engine
+    #IO PNML

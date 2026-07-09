@@ -14,6 +14,14 @@ coordinate space. When loading vanilla PNML (no toolspecific extensions), safe
 defaults apply: every place gets a dot, the first marked place becomes
 playerStart, and there are no ghost spawns.
 
+Together, export followed by import forms a round-trip that preserves net
+topology (place ids, transition ids, arcs), game metadata (playerStart,
+ghostSpawns, nodeRadius), and hasDot values. Positions are not preserved —
+importPNML always scale-fits — but all structural and game-semantic properties
+are recovered exactly. The round-trip property cannot be expressed as a notlob
+claim because importPNML depends on DOMParser, a browser-only API not available
+in the tsx runtime used for claims.
+
     function exportPNML(gn: GameNet, netName: string): string {
       const { net } = gn;
       const lines: string[] = [];
@@ -215,6 +223,7 @@ playerStart, and there are no ghost spawns.
 
 ##special XML characters are escaped
     escXml('a & b < c > d "e"') === 'a &amp; b &lt; c &gt; d &quot;e&quot;'
+
 
 #References
     #Game Map
