@@ -64,11 +64,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  const pkgPath = path.join(projectRoot, 'package.json');
+  const version = fs.existsSync(pkgPath)
+    ? (JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version ?? '')
+    : '';
+
   const html     = fs.readFileSync(htmlPath, 'utf8');
-  const injected = html.replace(
-    '<!-- NOTLOB_BUNDLE -->',
-    `<script>\n${bundledJs}\n</script>`,
-  );
+  const injected = html
+    .replace('<!-- NOTLOB_VERSION -->', `v${version}`)
+    .replace('<!-- NOTLOB_BUNDLE -->', `<script>\n${bundledJs}\n</script>`);
 
   const outHtml = path.join(outputDir, 'index.html');
   fs.writeFileSync(outHtml, injected, 'utf8');
