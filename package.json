@@ -1,6 +1,6 @@
 {
   "name": "pn-chomper",
-  "version": "1.0.0",
+  "version": "0.7.0",
   "description": "A browser game where the map is a Petri net.",
   "main": "index.js",
   "scripts": {
