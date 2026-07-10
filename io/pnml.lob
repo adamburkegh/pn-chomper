@@ -8,19 +8,22 @@ net topology and layout positions. Game-specific data (playerStart, ghostSpawns,
 hasDot, nodeRadius) lives in toolspecific elements so vanilla PNML readers
 ignore it cleanly.
 
-Import parses a PNML string back into a GameNet. Positions are scale-to-fit
-into the 950×780 canvas so any net looks reasonable regardless of its original
-coordinate space. When loading vanilla PNML (no toolspecific extensions), safe
-defaults apply: every place gets a dot, the first marked place becomes
-playerStart, and there are no ghost spawns.
+Import is split into two functions. buildGameNet takes plain #RawPlace,
+#RawTrans, and #RawArc records and assembles a GameNet: it scale-fits all
+positions to the 950×780 canvas, builds the net, resolves playerStart
+(toolspecific playerStart > initialMarking > first place), and collects
+ghostSpawns. importPNML is a thin browser wrapper: it calls DOMParser to
+parse the XML string into a Document, extracts the raw records, then
+delegates to buildGameNet.
 
-Together, export followed by import forms a round-trip that preserves net
-topology (place ids, transition ids, arcs), game metadata (playerStart,
-ghostSpawns, nodeRadius), and hasDot values. Positions are not preserved —
-importPNML always scale-fits — but all structural and game-semantic properties
-are recovered exactly. The round-trip property cannot be expressed as a notlob
-claim because importPNML depends on DOMParser, a browser-only API not available
-in the tsx runtime used for claims.
+This split means the assembly logic is testable without a browser.
+importPNML itself cannot be claimed — DOMParser is not available in the
+tsx runtime — but buildGameNet can be. The full XML round-trip therefore
+remains documented in prose rather than the claim layer.
+
+When loading vanilla PNML (no toolspecific extensions), safe defaults
+apply: every place gets a dot, the first marked place becomes playerStart,
+and there are no ghost spawns.
 
     function exportPNML(gn: GameNet, netName: string): string {
       const { net } = gn;
@@ -89,13 +92,54 @@ in the tsx runtime used for claims.
               .replace(/"/g, '&quot;');
     }
 
+    type RawPlace = { id: string; label: string; x: number; y: number; hasDot: boolean; isStart: boolean; marking: number };
+    type RawTrans = { id: string; label: string; x: number; y: number; isSpawn: boolean };
+    type RawArc   = { id: string; src: string; tgt: string; weight: number };
+
+    function buildGameNet(
+      rawPlaces: RawPlace[],
+      rawTrans:  RawTrans[],
+      rawArcs:   RawArc[],
+      nodeRadius?: number,
+    ): GameNet {
+      const allX = [...rawPlaces, ...rawTrans].map(n => n.x);
+      const allY = [...rawPlaces, ...rawTrans].map(n => n.y);
+      const minX = Math.min(...allX), maxX = Math.max(...allX);
+      const minY = Math.min(...allY), maxY = Math.max(...allY);
+      const PAD = 80, CW = 950, CH = 780;
+      const sc  = Math.min(
+        (maxX > minX) ? (CW - 2 * PAD) / (maxX - minX) : 1,
+        (maxY > minY) ? (CH - 2 * PAD) / (maxY - minY) : 1,
+      );
+      const fx = (x: number) => (x - minX) * sc + PAD;
+      const fy = (y: number) => (y - minY) * sc + PAD;
+
+      const net = makeNet();
+      for (const p of rawPlaces) {
+        const gp = addPlace(net, p.id, p.label, fx(p.x), fy(p.y)) as GamePlace;
+        gp.hasDot = p.hasDot;
+      }
+      for (const t of rawTrans) {
+        addTransition(net, t.id, t.label, fx(t.x), fy(t.y));
+      }
+      for (const arc of rawArcs) {
+        try { addArc(net, arc.id, arc.src, arc.tgt, arc.weight); } catch { /* skip malformed arcs */ }
+      }
+
+      const playerStart =
+        rawPlaces.find(p => p.isStart)?.id ??
+        rawPlaces.find(p => p.marking > 0)?.id ??
+        rawPlaces[0]?.id ?? '';
+
+      const ghostSpawns = rawTrans.filter(t => t.isSpawn).map(t => t.id);
+
+      return { net, playerStart, ghostSpawns, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
+    }
+
     function importPNML(xmlString: string): GameNet {
       const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
       if (doc.querySelector('parsererror'))
         throw new Error('PNML parse error');
-
-      type RawPlace = { id: string; label: string; x: number; y: number; hasDot: boolean; isStart: boolean; marking: number };
-      type RawTrans = { id: string; label: string; x: number; y: number; isSpawn: boolean };
 
       function nodeText(el: Element, sel: string): string {
         return el.querySelector(sel)?.textContent?.trim() ?? '';
@@ -129,47 +173,21 @@ in the tsx runtime used for claims.
         });
       }
 
-      // Scale all positions to fit 950×780 with padding
-      const allX = [...rawPlaces, ...rawTrans].map(n => n.x);
-      const allY = [...rawPlaces, ...rawTrans].map(n => n.y);
-      const minX = Math.min(...allX), maxX = Math.max(...allX);
-      const minY = Math.min(...allY), maxY = Math.max(...allY);
-      const PAD = 80, CW = 950, CH = 780;
-      const sc  = Math.min(
-        (maxX > minX) ? (CW - 2 * PAD) / (maxX - minX) : 1,
-        (maxY > minY) ? (CH - 2 * PAD) / (maxY - minY) : 1,
-      );
-      const fx = (x: number) => (x - minX) * sc + PAD;
-      const fy = (y: number) => (y - minY) * sc + PAD;
-
-      const net = makeNet();
-      for (const p of rawPlaces) {
-        const gp = addPlace(net, p.id, p.label, fx(p.x), fy(p.y)) as GamePlace;
-        gp.hasDot = p.hasDot;
-      }
-      for (const t of rawTrans) {
-        addTransition(net, t.id, t.label, fx(t.x), fy(t.y));
-      }
+      const rawArcs: RawArc[] = [];
       for (const el of doc.querySelectorAll('arc')) {
-        const id  = el.getAttribute('id') ?? '';
-        const src = el.getAttribute('source') ?? '';
-        const tgt = el.getAttribute('target') ?? '';
-        const w   = parseInt(el.querySelector('inscription > text')?.textContent?.trim() ?? '1', 10);
-        try { addArc(net, id, src, tgt, w); } catch { /* skip malformed arcs */ }
+        rawArcs.push({
+          id:     el.getAttribute('id') ?? '',
+          src:    el.getAttribute('source') ?? '',
+          tgt:    el.getAttribute('target') ?? '',
+          weight: parseInt(el.querySelector('inscription > text')?.textContent?.trim() ?? '1', 10),
+        });
       }
-
-      const playerStart =
-        rawPlaces.find(p => p.isStart)?.id ??
-        rawPlaces.find(p => p.marking > 0)?.id ??
-        rawPlaces[0]?.id ?? '';
-
-      const ghostSpawns = rawTrans.filter(t => t.isSpawn).map(t => t.id);
 
       const nrText = doc.querySelector('net > toolspecific[tool="pn-chomper"] > nodeRadius')
                        ?.textContent?.trim();
       const nodeRadius = nrText ? parseInt(nrText, 10) : undefined;
 
-      return { net, playerStart, ghostSpawns, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
+      return buildGameNet(rawPlaces, rawTrans, rawArcs, nodeRadius);
     }
 
     function downloadPNML(gn: GameNet, name: string): void {
@@ -182,6 +200,96 @@ in the tsx runtime used for claims.
       a.click();
       URL.revokeObjectURL(url);
     }
+
+The buildGameNet examples below use hand-constructed raw records to verify
+assembly without a browser.
+
+    const _rp1: RawPlace = { id: 'a', label: 'A', x: 0,   y: 0, hasDot: true,  isStart: true,  marking: 0 };
+    const _rp2: RawPlace = { id: 'b', label: 'B', x: 100, y: 0, hasDot: false, isStart: false, marking: 0 };
+    const _rt1: RawTrans = { id: 't', label: 'T', x: 50,  y: 0, isSpawn: true };
+    const _ra1: RawArc   = { id: 'arc1', src: 'a', tgt: 't', weight: 1 };
+    const _builtGn = buildGameNet([_rp1, _rp2], [_rt1], [_ra1]);
+
+~example
+    _builtGn.playerStart === 'a'
+    _builtGn.ghostSpawns.includes('t')
+    _builtGn.net.places.has('a')
+    _builtGn.net.places.has('b')
+    !(_builtGn.net.places.get('b') as GamePlace).hasDot
+    _builtGn.net.arcs.length === 1
+
+~property playerStart_from_isStart
+    fc.assert(fc.property(
+      fc.integer({ min: 0, max: 5 }),
+      fc.integer({ min: 1, max: 5 }),
+      (startIdx, total) => {
+        const places: RawPlace[] = Array.from({ length: total }, (_, i) => ({
+          id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
+          hasDot: true, isStart: i === startIdx % total, marking: 0,
+        }));
+        const gn = buildGameNet(places, [], []);
+        return gn.playerStart === `p${startIdx % total}`;
+      }
+    ))
+
+~property scale_fit_positions_within_canvas
+    fc.assert(fc.property(
+      fc.array(fc.record({ x: fc.integer({ min: -1000, max: 1000 }), y: fc.integer({ min: -1000, max: 1000 }) }), { minLength: 2, maxLength: 10 }),
+      (coords) => {
+        const places: RawPlace[] = coords.map((c, i) => ({
+          id: `p${i}`, label: `P${i}`, x: c.x, y: c.y,
+          hasDot: true, isStart: i === 0, marking: 0,
+        }));
+        const gn = buildGameNet(places, [], []);
+        const PAD = 80, CW = 950, CH = 780, EPS = 1e-9;
+        return [...gn.net.places.values()].every(p =>
+          p.x >= PAD - EPS && p.x <= CW - PAD + EPS &&
+          p.y >= PAD - EPS && p.y <= CH - PAD + EPS
+        );
+      }
+    ))
+
+~property place_ids_preserved
+    fc.assert(fc.property(
+      fc.integer({ min: 1, max: 20 }),
+      (n) => {
+        const places: RawPlace[] = Array.from({ length: n }, (_, i) => ({
+          id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
+          hasDot: true, isStart: i === 0, marking: 0,
+        }));
+        const gn = buildGameNet(places, [], []);
+        return places.every(p => gn.net.places.has(p.id));
+      }
+    ))
+
+~property hasDot_values_preserved
+    fc.assert(fc.property(
+      fc.array(fc.boolean(), { minLength: 1, maxLength: 10 }),
+      (dotValues) => {
+        const places: RawPlace[] = dotValues.map((hasDot, i) => ({
+          id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
+          hasDot, isStart: i === 0, marking: 0,
+        }));
+        const gn = buildGameNet(places, [], []);
+        return places.every(p =>
+          (gn.net.places.get(p.id) as GamePlace).hasDot === p.hasDot
+        );
+      }
+    ))
+
+~property ghostSpawns_match_isSpawn
+    fc.assert(fc.property(
+      fc.array(fc.boolean(), { minLength: 1, maxLength: 10 }),
+      (spawnValues) => {
+        const place: RawPlace = { id: 'p0', label: 'P0', x: 0, y: 0, hasDot: true, isStart: true, marking: 0 };
+        const trans: RawTrans[] = spawnValues.map((isSpawn, i) => ({
+          id: `t${i}`, label: `T${i}`, x: (i + 1) * 10, y: 0, isSpawn,
+        }));
+        const gn = buildGameNet([place], trans, []);
+        const expected = trans.filter(t => t.isSpawn).map(t => t.id).sort().join();
+        return gn.ghostSpawns.slice().sort().join() === expected;
+      }
+    ))
 
 ~example
     exportPNML(makeSplitMap(), 'Split').includes('<pnml')
