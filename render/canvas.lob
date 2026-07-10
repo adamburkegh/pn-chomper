@@ -278,6 +278,10 @@ needed on the transition record.
         );
       }
 
+      endfont = '18px monospace';
+      endmsg = 'press R to restart, ESC to choose another map';
+
+
       // HUD
       ctx.fillStyle = '#ccc';
       ctx.font = '15px monospace';
@@ -292,8 +296,8 @@ needed on the transition record.
         ctx.font = 'bold 64px monospace';
         ctx.fillText('YOU WIN', r.canvas.width / 2, r.canvas.height / 2 - 10);
         ctx.fillStyle = '#888';
-        ctx.font = '18px monospace';
-        ctx.fillText('press R to restart', r.canvas.width / 2, r.canvas.height / 2 + 30);
+        ctx.font = endfont;
+        ctx.fillText(endmsg, r.canvas.width / 2, r.canvas.height / 2 + 62);
       }
       if (engine.phase === 'lost') {
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -306,8 +310,8 @@ needed on the transition record.
         ctx.font = 'bold 28px monospace';
         ctx.fillText(`${state.lives} ${state.lives === 1 ? 'life' : 'lives'} remaining`, r.canvas.width / 2, r.canvas.height / 2 + 30);
         ctx.fillStyle = '#666';
-        ctx.font = '18px monospace';
-        ctx.fillText('press R to restart', r.canvas.width / 2, r.canvas.height / 2 + 62);
+        ctx.font = endfont;
+        ctx.fillText(endmsg, r.canvas.width / 2, r.canvas.height / 2 + 62);
       }
     }
 
