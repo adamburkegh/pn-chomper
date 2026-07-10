@@ -10,6 +10,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "dependencies": {
+    "fast-check": "^3.0.0"
+  },
   "devDependencies": {
     "@types/node": "^25.9.1",
     "esbuild": "^0.28.0",

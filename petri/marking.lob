@@ -2,7 +2,9 @@
 
 A marking assigns a non-negative integer token count to each place in a
 Petri net. It is the dynamic state — who is where — while the net itself
-(see #Petri Net) is the static map.
+(see #Petri Net) is the static map. The non-negativity invariant is
+enforced by setTokens and markingRemoveTokens, both of which throw on
+violation.
 
 In the game a marking records where every chomper and every ghost currently
 lives. Multiple tokens can occupy the same place: two chompers in one room
@@ -19,6 +21,9 @@ is perfectly valid Petri net semantics, and makes for interesting gameplay.
     }
 
     function setTokens(m: Marking, placeId: string, count: number): void {
+      if (count < 0) throw new Error(
+        `Token count must be non-negative, got ${count} for '${placeId}'`
+      );
       m.set(placeId, count);
     }
 
@@ -85,6 +90,48 @@ The marking examples below reuse the split net defined in #Petri Net
       catch { return true; }
     }
 
+    function _setTokensNegativeThrows(): boolean {
+      const m = emptyMarking();
+      try { setTokens(m, 'p1', -1); return false; }
+      catch { return true; }
+    }
+
+The properties below state formal invariants of the firing rule. They use
+fast-check generators and will run when the TypeScript binding's
+`~property-testing fast-check` integration is complete.
+
+~property token_conservation
+    fc.assert(fc.property(fc.integer({ min: 1, max: 50 }), (n) => {
+      const net = makeNet();
+      addPlace(net, 'src', 'Src', 0, 0);
+      addPlace(net, 'dst', 'Dst', 100, 0);
+      addTransition(net, 'mv', 'Move', 50, 0);
+      addArc(net, 'i', 'src', 'mv');
+      addArc(net, 'o', 'mv', 'dst');
+      const m = emptyMarking();
+      markingAddTokens(m, 'src', n);
+      const next = fire(net, m, 'mv');
+      return (tokenCount(m, 'src') + tokenCount(m, 'dst')) ===
+             (tokenCount(next, 'src') + tokenCount(next, 'dst'));
+    }))
+
+~property enabling_is_monotone
+    fc.assert(fc.property(fc.integer({ min: 1, max: 50 }), fc.integer({ min: 0, max: 50 }), (base, extra) => {
+      const m = emptyMarking();
+      markingAddTokens(m, 'p1', base);
+      const mMore = emptyMarking();
+      markingAddTokens(mMore, 'p1', base + extra);
+      return isEnabled(_testNet, m, 't1') ? isEnabled(_testNet, mMore, 't1') : true;
+    }))
+
+~property firing_preserves_non_negativity
+    fc.assert(fc.property(fc.integer({ min: 1, max: 50 }), (n) => {
+      const m = emptyMarking();
+      markingAddTokens(m, 'p1', n);
+      const next = fire(_testNet, m, 't1');
+      return [...next.values()].every(v => v >= 0);
+    }))
+
 ~example
     tokenCount(_m0, 'p1') === 1
     tokenCount(_m0, 'p2') === 0
@@ -107,6 +154,9 @@ The marking examples below reuse the split net defined in #Petri Net
 
 ##after split no transitions remain enabled (no input token)
     enabledTransitions(_testNet, _m1).length === 0
+
+##setTokens rejects negative counts
+    _setTokensNegativeThrows()
 
 #References
     #Petri Net

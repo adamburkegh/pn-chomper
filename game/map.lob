@@ -282,21 +282,12 @@ the ghost moving rather than stuck waiting at an arm-end.
 
 ##Grid Map
 
-The grid map is a large-scale demonstration: 10 × 10 = 100 places arranged
-in a regular grid. Most interior places offer a choice (go right OR go down).
-Five fork junctions — distributed across the four quadrants and the centre —
-are key contested territory: arriving at one fires a split that sends tokens
-RIGHT AND DOWN simultaneously. No choice is offered; the arrival token
-becomes two, moving in both directions at once.
-
-Fork junctions are focal because the ghost follows the same firing rules.
-A ghost that reaches a fork junction splits too, suddenly threatening from
-two corridors at once. Contesting a fork junction means fighting on two
-fronts.
-
-The bottom-right corner loops back to the top-left via a restart transition.
-Node radius is halved (12 px) so the dense grid fits the canvas; adaptive
-corridor margins keep short arcs visible.
+The grid map is a test fixture rather than a playable level — the 10×10
+topology is too dense for fun gameplay but covers properties the playable
+maps cannot: 101 places, four fork junctions at quadrant centres, a join
+room reachable only by two converging tokens, a non-default nodeRadius of
+12, and hasDot=false on the start place. It exists to give the claim layer
+and the PNML IO module a large, structurally rich net to work with.
 
     function makeGridMap(): GameNet {
       const net = makeNet();

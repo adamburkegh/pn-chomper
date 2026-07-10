@@ -41,7 +41,6 @@ the ?map= query parameter on startup.
       { name: 'Split (Y-junction)',   fn: makeSplitMap,    tag: 'built-in' },
       { name: 'Diamond (sync + detours)', fn: makeDiamondMap, tag: 'built-in' },
       { name: 'Circuit (fork + join)',  fn: makeCircuitMap,  tag: 'built-in' },
-      // { name: 'Grid (10×10 = 100 places)', fn: makeGridMap, tag: 'built-in' },
     ];
     let mapIdx = 0;
 
