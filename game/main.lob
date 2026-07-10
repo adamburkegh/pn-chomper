@@ -90,6 +90,8 @@ the ?map= query parameter on startup.
         { kind: 'action', label: 'Restart',         run: () => { eng = makeEngine(gn); } },
         { kind: 'action', label: 'Export PNML',     run: () => downloadPNML(gn, mapList[mapIdx].name) },
         { kind: 'action', label: 'Load PNML file…', run: () => { hideMenu(); pnmlInput.click(); } },
+        { kind: 'header', label: 'About' },
+        { kind: 'action', label: 'Source on GitHub', run: () => { window.open('https://github.com/adamburkegh/pn-chomper', '_blank'); } },
         { kind: 'header', label: 'Maps' },
         ...mapList.map((entry, i): MenuAction => ({
           kind: 'action', label: entry.name, tag: entry.tag,

@@ -865,6 +865,10 @@
             hideMenu();
             pnmlInput.click();
           } },
+          { kind: "header", label: "About" },
+          { kind: "action", label: "Source on GitHub", run: () => {
+            window.open("https://github.com/adamburkegh/pn-chomper", "_blank");
+          } },
           { kind: "header", label: "Maps" },
           ...mapList.map((entry, i) => ({
             kind: "action",
