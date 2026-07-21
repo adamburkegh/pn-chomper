@@ -13,10 +13,12 @@ is fundamentally non-directional — the player chooses an event (transition),
 not a compass direction. This also surfaces the Petri net structure more
 clearly as a teaching tool.
 
-Map switching is done through the ESC menu, which lists all loaded maps.
-The renderer and canvas stay constant; only the game state is replaced.
-Maps can be loaded from local PNML files via the menu, or from a URL via
-the ?map= query parameter on startup.
+Map switching is done through the menu, which lists all loaded maps. The
+menu is opened with the ESC key or by tapping the ☰ button in the corner
+(the button is the primary way to open it on touch devices). The renderer
+and canvas stay constant; only the game state is replaced. Maps can be
+loaded from local PNML files via the menu, or from a URL via the ?map=
+query parameter on startup.
 
     function hitTestTransition(
       net: PetriNet,
@@ -228,6 +230,8 @@ the ?map= query parameter on startup.
     window.addEventListener('resize', () => {
       applyScale();
     });
+
+    document.getElementById('menu-btn')?.addEventListener('click', showMenu);
 
 ---
 

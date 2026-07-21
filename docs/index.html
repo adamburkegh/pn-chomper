@@ -18,6 +18,15 @@
       color: #555; font: 11px monospace;
       pointer-events: none;
     }
+    #menu-btn {
+      position: fixed; top: 12px; right: 12px;
+      background: none; border: none; padding: 4px 8px;
+      color: #555; font: 20px monospace;
+      cursor: pointer;
+      z-index: 5;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #menu-btn:hover, #menu-btn:active { color: #bbb; }
     #map-name {
       position: fixed; top: 40px; left: 12px;
       color: #ffe000; font: 13px monospace;
@@ -103,11 +112,12 @@
   </div>
   <div id="version">v0.7.0</div>
   <div id="map-name"></div>
-  <div id="startup-hint">Press Esc to load other maps, or click to play</div>
+  <button id="menu-btn" aria-label="Open menu">☰</button>
+  <div id="startup-hint"> click a glowing doorway to play · Hit ☰ or ESC for maps &amp; settings</div>
   <div id="menu">
     <div id="menu-inner">
       <ul id="menu-items"></ul>
-      <p id="menu-hint">↑ ↓ &nbsp;navigate &nbsp;·&nbsp; Enter &nbsp;select &nbsp;·&nbsp; Esc &nbsp;close</p>
+      <p id="menu-hint">Tap an item &nbsp;·&nbsp; ↑ ↓ &nbsp;navigate &nbsp;·&nbsp; Enter &nbsp;select &nbsp;·&nbsp; Esc &nbsp;close</p>
     </div>
   </div>
   <script>
@@ -997,6 +1007,7 @@
       window.addEventListener("resize", () => {
         applyScale();
       });
+      document.getElementById("menu-btn")?.addEventListener("click", showMenu);
     }
   });
   require_game_main();
