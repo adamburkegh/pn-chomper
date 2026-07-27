@@ -55,7 +55,9 @@ Built in [notlob](https://github.com/adamburkegh/notlob) literate TypeScript. St
 .venv/Scripts/notlob build
 ```
 
-Output: `dist/index.html` — open in any browser, no server needed.
+Output: `dist/index.html` — open in any browser, no server needed. 
+
+A copy is also placed in `docs/` for easy distribution from github.
 
 ## Host
 
