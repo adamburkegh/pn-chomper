@@ -1,5 +1,9 @@
 # Seed agent instructions
 
+This file covers one-time project bootstrap. Once its steps are done and
+superseded by `AGENTS.md`, this file has served its purpose and can be
+deleted.
+
 High level detail on the project is in `README.md`. 
 
 ## Design
@@ -12,7 +16,7 @@ Favour lightweight solutions with few dependencies. The game is mainly to run in
 
 ### Project setup
 
-Notlob is a python application. Start by installing notlob from local path `~/bpm/notlob-lab`. Then initialise the project with
+Notlob is a python application, installed as a global CLI tool (e.g. `pipx install --editable ~/bpm/notlob-lab` until a published package exists). Then initialise the project with
 
 ```
 notlob init --language typescript

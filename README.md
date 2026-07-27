@@ -49,8 +49,10 @@ Built in [notlob](https://github.com/adamburkegh/notlob) literate TypeScript. St
 
 ## Build
 
+Requires [notlob](https://github.com/adamburkegh/notlob) installed as a global CLI tool (e.g. via `pipx install notlob`).
+
 ```
-.venv/Scripts/notlob build
+notlob build
 ```
 
 Output: `dist/index.html` — open in any browser, no server needed. 
