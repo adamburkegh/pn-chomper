@@ -11,12 +11,11 @@ Any PNML file can be loaded as a map. To make it a chomper-style puzzle, you wil
 
 ## Ghosts
 
-Ghost spawn points are determined by a tool-specific block added to a transition.
+Ghost spawn points are determined by a tool-specific block added to a transition. Multiple transitions can be made ghost spawns.
 
 ```xml
 <transition id="t_fork">
   <name><text>Fork</text></name>
-  <graphics><position x="300" y="150"/></graphics>
   <toolspecific tool="pn-chomper" version="1.0">
     <ghostSpawn/>
   </toolspecific>
@@ -39,7 +38,6 @@ A specific map in the game can be shared with the URL:
 https://<pn-chomper-url>/?map=https://example.com/mymap.pnml
 ```
 
-As you can see, it's not strictly 
 
 
 # Development
