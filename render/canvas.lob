@@ -91,9 +91,12 @@ overdraw the place circles or transition rectangles.
 ##Drawing Places
 
 Places are circles. The colour signals status: dark (empty), pellet visible
-(has dot), chomper present, ghost present. When both a chomper and a ghost
-share a place, the ghost is rendered above the chomper to make the danger
-immediately legible.
+(has dot), chomper present, ghost present. Dot and chomper presence are
+read from the #Game State marking; hasDot and nodeRadius come from the
+#Game Map layer. When both a chomper and a ghost share a place, the ghost
+is rendered above the chomper to make the danger immediately legible. When multiple chomper tokens occupy one place, a single chomper
+icon is drawn with the count printed on its body — only shown when greater
+than one, keeping the single-token case visually clean.
 
     function drawPlace(
       ctx: CanvasRenderingContext2D,
@@ -121,14 +124,20 @@ immediately legible.
       // Draw ghosts first (below), chompers on top
       for (let j = 0; j < ghosts; j++) {
         const ox = (j - (ghosts - 1) / 2) * 16;
-        // If chompers also present, push ghost to bottom half of circle
         const oy = chompers > 0 ? 8 : 0;
         drawGhost(ctx, p.x + ox, p.y + oy, 9);
       }
-      for (let i = 0; i < chompers; i++) {
-        const ox = (i - (chompers - 1) / 2) * 16;
+      if (chompers > 0) {
         const oy = ghosts > 0 ? -7 : 0;
-        drawChomper(ctx, p.x + ox, p.y + oy, 10);
+        drawChomper(ctx, p.x, p.y + oy, 10);
+        if (chompers > 1) {
+          ctx.fillStyle = '#111';
+          ctx.font = 'bold 9px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(chompers), p.x - 3, p.y + oy);
+          ctx.textBaseline = 'alphabetic';
+        }
       }
 
       ctx.fillStyle = '#666';

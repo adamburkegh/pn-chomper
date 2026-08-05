@@ -216,7 +216,7 @@
         addArc(net, "a14", "bm_t", "br");
         addArc(net, "a15", "br", "brs");
         addArc(net, "a16", "brs", "c");
-        return { net, ghostSpawns: ["tls"], playerStart: "c" };
+        return { net, ghostSpawns: ["tls"], playerStarts: ["c"] };
       }
       function makeSplitMap() {
         const net = makeNet();
@@ -245,7 +245,7 @@
         addArc(net, "b11", "t_rst_u", "start");
         addArc(net, "b12", "fin_lo", "t_rst_l");
         addArc(net, "b13", "t_rst_l", "start");
-        return { net, ghostSpawns: ["t_up"], playerStart: "start" };
+        return { net, ghostSpawns: ["t_up"], playerStarts: ["start"] };
       }
       function makeDiamondMap() {
         const net = makeNet();
@@ -286,7 +286,7 @@
         addArc(net, "d18", "t_sync", "fin");
         addArc(net, "d19", "fin", "t_rst");
         addArc(net, "d20", "t_rst", "start");
-        return { net, ghostSpawns: ["t_sync"], playerStart: "start" };
+        return { net, ghostSpawns: ["t_sync"], playerStarts: ["start"] };
       }
       function makeCircuitMap() {
         const net = makeNet();
@@ -331,7 +331,7 @@
         addArc(net, "c20", "t_se_mid", "mid");
         addArc(net, "c21", "mid", "t_mid_dep");
         addArc(net, "c22", "t_mid_dep", "depot");
-        return { net, ghostSpawns: ["t_sync"], playerStart: "depot" };
+        return { net, ghostSpawns: ["t_sync"], playerStarts: ["depot"] };
       }
       function emptyMarking() {
         return /* @__PURE__ */ new Map();
@@ -372,7 +372,9 @@
       const _m1 = fire(_testNet, _m0, "t1");
       function initState(gn2, lives = 3) {
         const chompers = emptyMarking();
-        markingAddTokens(chompers, gn2.playerStart, 1);
+        for (const startId of gn2.playerStarts) {
+          markingAddTokens(chompers, startId, gn2.startMarkings?.get(startId) ?? 1);
+        }
         const ghosts = emptyMarking();
         for (const spawnId of gn2.ghostSpawns) {
           const outgoing = outputArcs(gn2.net, spawnId);
@@ -405,7 +407,9 @@
         if (total > 0) return;
         state.lives -= 1;
         state.chompers.clear();
-        markingAddTokens(state.chompers, state.gn.playerStart, 1);
+        for (const startId of state.gn.playerStarts) {
+          markingAddTokens(state.chompers, startId, state.gn.startMarkings?.get(startId) ?? 1);
+        }
         state.ghosts.clear();
         for (const spawnId of state.gn.ghostSpawns) {
           const outgoing = outputArcs(state.gn.net, spawnId);
@@ -533,10 +537,17 @@
           const oy = chompers > 0 ? 8 : 0;
           drawGhost(ctx, p.x + ox, p.y + oy, 9);
         }
-        for (let i = 0; i < chompers; i++) {
-          const ox = (i - (chompers - 1) / 2) * 16;
+        if (chompers > 0) {
           const oy = ghosts > 0 ? -7 : 0;
-          drawChomper(ctx, p.x + ox, p.y + oy, 10);
+          drawChomper(ctx, p.x, p.y + oy, 10);
+          if (chompers > 1) {
+            ctx.fillStyle = "#111";
+            ctx.font = "bold 9px monospace";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(String(chompers), p.x - 3, p.y + oy);
+            ctx.textBaseline = "alphabetic";
+          }
         }
         ctx.fillStyle = "#666";
         ctx.font = "10px monospace";
@@ -691,10 +702,10 @@
           lines.push(`      <place id="${escXml(p.id)}">`);
           lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
           lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
-          const marking = p.id === gn2.playerStart ? 1 : 0;
+          const marking = gn2.startMarkings?.get(p.id) ?? (gn2.playerStarts.includes(p.id) ? 1 : 0);
           lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
           lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
-          if (p.id === gn2.playerStart) lines.push("          <playerStart/>");
+          if (gn2.playerStarts.includes(p.id)) lines.push("          <playerStart/>");
           if (!gp.hasDot) lines.push("          <hasDot>false</hasDot>");
           lines.push("        </toolspecific>");
           lines.push("      </place>");
@@ -749,9 +760,22 @@
           } catch {
           }
         }
-        const playerStart = rawPlaces.find((p) => p.isStart)?.id ?? rawPlaces.find((p) => p.marking > 0)?.id ?? rawPlaces[0]?.id ?? "";
+        let startEntries;
+        const isStartPlaces = rawPlaces.filter((p) => p.isStart);
+        if (isStartPlaces.length > 0) {
+          startEntries = isStartPlaces.map((p) => ({ id: p.id, count: p.marking > 0 ? p.marking : 1 }));
+        } else {
+          const markedPlaces = rawPlaces.filter((p) => p.marking > 0);
+          if (markedPlaces.length > 0) {
+            startEntries = markedPlaces.map((p) => ({ id: p.id, count: p.marking }));
+          } else {
+            startEntries = rawPlaces[0] ? [{ id: rawPlaces[0].id, count: 1 }] : [];
+          }
+        }
+        const playerStarts = startEntries.map((e) => e.id);
+        const startMarkings = new Map(startEntries.map((e) => [e.id, e.count]));
         const ghostSpawns = rawTrans.filter((t) => t.isSpawn).map((t) => t.id);
-        return { net, playerStart, ghostSpawns, ...nodeRadius !== void 0 ? { nodeRadius } : {} };
+        return { net, playerStarts, startMarkings, ghostSpawns, ...nodeRadius !== void 0 ? { nodeRadius } : {} };
       }
       function importPNML(xmlString) {
         const doc = new DOMParser().parseFromString(xmlString, "application/xml");

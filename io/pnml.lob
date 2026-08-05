@@ -10,9 +10,9 @@ ignore it cleanly.
 
 Import is split into two functions. buildGameNet takes plain #RawPlace,
 #RawTrans, and #RawArc records and assembles a GameNet: it scale-fits all
-positions to the 950×780 canvas, builds the net, resolves playerStart
-(toolspecific playerStart > initialMarking > first place), and collects
-ghostSpawns. importPNML is a thin browser wrapper: it calls DOMParser to
+positions to the 950×780 canvas, builds the net, resolves playerStarts
+(all toolspecific playerStart elements > all initialMarking places > first
+place as fallback), and collects ghostSpawns. importPNML is a thin browser wrapper: it calls DOMParser to
 parse the XML string into a Document, extracts the raw records, then
 delegates to buildGameNet.
 
@@ -22,8 +22,8 @@ tsx runtime — but buildGameNet can be. The full XML round-trip therefore
 remains documented in prose rather than the claim layer.
 
 When loading vanilla PNML (no toolspecific extensions), safe defaults
-apply: every place gets a dot, the first marked place becomes playerStart,
-and there are no ghost spawns.
+apply: every place gets a dot, the first marked place is added to
+playerStarts, and there are no ghost spawns.
 
     function exportPNML(gn: GameNet, netName: string): string {
       const { net } = gn;
@@ -49,10 +49,10 @@ and there are no ghost spawns.
         lines.push(`      <place id="${escXml(p.id)}">`);
         lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
         lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
-        const marking = p.id === gn.playerStart ? 1 : 0;
+        const marking = gn.startMarkings?.get(p.id) ?? (gn.playerStarts.includes(p.id) ? 1 : 0);
         lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
         lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
-        if (p.id === gn.playerStart) lines.push('          <playerStart/>');
+        if (gn.playerStarts.includes(p.id)) lines.push('          <playerStart/>');
         if (!gp.hasDot)             lines.push('          <hasDot>false</hasDot>');
         lines.push('        </toolspecific>');
         lines.push('      </place>');
@@ -126,14 +126,25 @@ and there are no ghost spawns.
         try { addArc(net, arc.id, arc.src, arc.tgt, arc.weight); } catch { /* skip malformed arcs */ }
       }
 
-      const playerStart =
-        rawPlaces.find(p => p.isStart)?.id ??
-        rawPlaces.find(p => p.marking > 0)?.id ??
-        rawPlaces[0]?.id ?? '';
+      type StartEntry = { id: string; count: number };
+      let startEntries: StartEntry[];
+      const isStartPlaces = rawPlaces.filter(p => p.isStart);
+      if (isStartPlaces.length > 0) {
+        startEntries = isStartPlaces.map(p => ({ id: p.id, count: p.marking > 0 ? p.marking : 1 }));
+      } else {
+        const markedPlaces = rawPlaces.filter(p => p.marking > 0);
+        if (markedPlaces.length > 0) {
+          startEntries = markedPlaces.map(p => ({ id: p.id, count: p.marking }));
+        } else {
+          startEntries = rawPlaces[0] ? [{ id: rawPlaces[0].id, count: 1 }] : [];
+        }
+      }
+      const playerStarts   = startEntries.map(e => e.id);
+      const startMarkings  = new Map(startEntries.map(e => [e.id, e.count]));
 
       const ghostSpawns = rawTrans.filter(t => t.isSpawn).map(t => t.id);
 
-      return { net, playerStart, ghostSpawns, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
+      return { net, playerStarts, startMarkings, ghostSpawns, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
     }
 
     function importPNML(xmlString: string): GameNet {
@@ -211,14 +222,14 @@ assembly without a browser.
     const _builtGn = buildGameNet([_rp1, _rp2], [_rt1], [_ra1]);
 
 ~example
-    _builtGn.playerStart === 'a'
+    _builtGn.playerStarts.includes('a')
     _builtGn.ghostSpawns.includes('t')
     _builtGn.net.places.has('a')
     _builtGn.net.places.has('b')
     !(_builtGn.net.places.get('b') as GamePlace).hasDot
     _builtGn.net.arcs.length === 1
 
-~property playerStart_from_isStart
+~property playerStarts_from_isStart
     fc.assert(fc.property(
       fc.integer({ min: 0, max: 5 }),
       fc.integer({ min: 1, max: 5 }),
@@ -228,7 +239,22 @@ assembly without a browser.
           hasDot: true, isStart: i === startIdx % total, marking: 0,
         }));
         const gn = buildGameNet(places, [], []);
-        return gn.playerStart === `p${startIdx % total}`;
+        return gn.playerStarts.includes(`p${startIdx % total}`);
+      }
+    ))
+
+~property all_isStart_in_playerStarts
+    fc.assert(fc.property(
+      fc.array(fc.boolean(), { minLength: 1, maxLength: 10 }),
+      (isStartFlags) => {
+        const places: RawPlace[] = isStartFlags.map((isStart, i) => ({
+          id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
+          hasDot: true, isStart, marking: 0,
+        }));
+        const gn = buildGameNet(places, [], []);
+        const expected = places.filter(p => p.isStart).map(p => p.id);
+        return expected.length === 0 ||
+          expected.every(id => gn.playerStarts.includes(id));
       }
     ))
 

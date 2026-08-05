@@ -9,6 +9,11 @@ This keeps the net semantics clean — each population fires independently — a
 makes it easy to check collisions (a place where a chomper and ghost both have
 tokens is a collision).
 
+A map may declare multiple playerStarts in its #Game Map definition, placing
+one chomper token at each start place when the game initialises. All start tokens are also
+restored on a life reset. Single-start maps are the common case; multi-start
+maps expose fork-join coordination from the very first move.
+
     interface GameState {
       gn: GameNet;
       chompers: Marking;     // player's tokens
@@ -20,7 +25,9 @@ tokens is a collision).
 
     function initState(gn: GameNet, lives = 3): GameState {
       const chompers = emptyMarking();
-      markingAddTokens(chompers, gn.playerStart, 1);
+      for (const startId of gn.playerStarts) {
+        markingAddTokens(chompers, startId, gn.startMarkings?.get(startId) ?? 1);
+      }
 
       const ghosts = emptyMarking();
       for (const spawnId of gn.ghostSpawns) {
@@ -86,7 +93,9 @@ consistent — removal is always a consumption event.
       if (total > 0) return;
       state.lives -= 1;
       state.chompers.clear();
-      markingAddTokens(state.chompers, state.gn.playerStart, 1);
+      for (const startId of state.gn.playerStarts) {
+        markingAddTokens(state.chompers, startId, state.gn.startMarkings?.get(startId) ?? 1);
+      }
       state.ghosts.clear();
       for (const spawnId of state.gn.ghostSpawns) {
         const outgoing = outputArcs(state.gn.net, spawnId);

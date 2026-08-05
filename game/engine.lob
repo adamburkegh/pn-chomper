@@ -125,7 +125,5 @@ transition, check that chompers appear in both arms.
     _phaseAfterPlayerMove() === 'ghost'
 
 #References
-    #Petri Net
     #Petri Marking
-    #Game Map
     #Game State

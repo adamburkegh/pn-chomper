@@ -15,9 +15,10 @@ corridors. The Cross map is the original simple symmetric demo.
 
     interface GameNet {
       net: PetriNet;
-      ghostSpawns: string[];     // transition ids where ghosts emerge
-      playerStart: string;       // place id where player token begins
-      nodeRadius?: number;       // override place drawing radius (default 24)
+      ghostSpawns: string[];          // transition ids where ghosts emerge
+      playerStarts: string[];         // place ids where player tokens begin
+      startMarkings?: Map<string, number>; // token count per start place (default 1)
+      nodeRadius?: number;            // override place drawing radius (default 24)
     }
 
     function gamePlace(
@@ -82,7 +83,7 @@ well away from the player.
       addArc(net, 'a16', 'brs', 'c');
 
       // Ghost spawns at 'tls' → exits to Top Mid, far from player start Centre
-      return { net, ghostSpawns: ['tls'], playerStart: 'c' };
+      return { net, ghostSpawns: ['tls'], playerStarts: ['c'] };
     }
 
 ##Split Map
@@ -136,7 +137,7 @@ long to make the return journey feel like a proper map traversal.
       addArc(net, 'b13','t_rst_l','start');
 
       // Ghost spawns at t_up, exits to Finish Upper (far from Start)
-      return { net, ghostSpawns: ['t_up'], playerStart: 'start' };
+      return { net, ghostSpawns: ['t_up'], playerStarts: ['start'] };
     }
 
 ##Diamond Map
@@ -213,7 +214,7 @@ pressure. The restart corridor arcs over the top to complete the cycle.
       addArc(net, 'd19', 'fin',   't_rst');
       addArc(net, 'd20', 't_rst', 'start');
 
-      return { net, ghostSpawns: ['t_sync'], playerStart: 'start' };
+      return { net, ghostSpawns: ['t_sync'], playerStarts: ['start'] };
     }
 
 ##Circuit Map
@@ -277,7 +278,7 @@ the ghost moving rather than stuck waiting at an arm-end.
       addArc(net, 'c21', 'mid',      't_mid_dep');
       addArc(net, 'c22', 't_mid_dep','depot');
 
-      return { net, ghostSpawns: ['t_sync'], playerStart: 'depot' };
+      return { net, ghostSpawns: ['t_sync'], playerStarts: ['depot'] };
     }
 
 ##Grid Map
@@ -371,13 +372,13 @@ and the PNML IO module a large, structurally rich net to work with.
       addArc(net, 'ar_rst_b', 'g_rst', 'g0_0');
 
       // Ghost spawns at centre-right transition, emerges at g4_5
-      return { net, ghostSpawns: ['gr4_4'], playerStart: 'g0_0', nodeRadius: 12 };
+      return { net, ghostSpawns: ['gr4_4'], playerStarts: ['g0_0'], nodeRadius: 12 };
     }
 
 ~example
     makeClassicMap().net.places.size === 7
     makeClassicMap().net.transitions.size === 8
-    makeClassicMap().playerStart === 'c'
+    makeClassicMap().playerStarts.includes('c')
 
 ~example
     makeSplitMap().net.places.size === 6
@@ -400,7 +401,7 @@ and the PNML IO module a large, structurally rich net to work with.
 ~example
     makeGridMap().net.places.size === 101
     makeGridMap().net.transitions.size === 179
-    makeGridMap().playerStart === 'g0_0'
+    makeGridMap().playerStarts.includes('g0_0')
     makeGridMap().nodeRadius === 12
 
 ---
