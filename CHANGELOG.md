@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.1 - Multi-token start support
+
+- **Multiple chomper start places**: maps can now designate more than one
+  player start — each start place receives one chomper token at game
+  initialisation. Tokens reset to all start places on a life loss.
+- **PNML `initialMarking` respected**: when loading a PNML file, the
+  `initialMarking` count at each start place is honoured. A place marked
+  with `<initialMarking><text>10</text></initialMarking>` starts with 10
+  chomper tokens, not one.
+- **Token count on chomper icon**: when multiple chomper tokens occupy a
+  single place, the count is displayed on the chomper body. Single-token
+  places are unchanged.
+
 ## 0.7.0 — Initial release
 
 First public release of PN Chomper, a browser puzzle game where the map is a Petri net: tokens are chompers, transitions are doorways, places are rooms, and arcs are corridors.
