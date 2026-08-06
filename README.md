@@ -24,7 +24,7 @@ Ghost spawn points are determined by a tool-specific block added to a transition
 
 ## Chomper Start
 
-Mark exactly one place with `<playerStart/>` or `<initialMarking><text>1</text></initialMarking>`.
+Mark exactly one place with `<playerStart/>` or multiple places with `<initialMarking><text>n</text></initialMarking>` where n is the exact number of tokens in that place.
 
 ## Suppressing Dots
 
