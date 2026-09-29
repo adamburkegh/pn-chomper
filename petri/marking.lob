@@ -96,9 +96,12 @@ The marking examples below reuse the split net defined in #Petri Net
       catch { return true; }
     }
 
-The properties below state formal invariants of the firing rule. They use
-fast-check generators and will run when the TypeScript binding's
-`~property-testing fast-check` integration is complete.
+The properties below state formal invariants of the firing rule, checked with
+fast-check generators. `token_conservation` checks that firing a transition
+with one input and one output arc preserves the total token count across the
+two places. `enabling_is_monotone` checks that adding tokens to an already-
+enabling marking cannot disable a transition. `firing_preserves_non_negativity`
+checks that no place's token count goes negative after a fire.
 
 ~property token_conservation
     fc.assert(fc.property(fc.integer({ min: 1, max: 50 }), (n) => {
