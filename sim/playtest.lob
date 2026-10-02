@@ -1,0 +1,253 @@
+#Sim Playtest
+
+A fuzz test, not a proof: a generic player policy (needing no per-map
+authorship) chooses moves turn by turn against a seeded random ghost,
+repeated across many seeds, tallying how often the game is actually won.
+This answers "is this map winnable" the same way manual playtesting does,
+but repeatably, in bulk, and without a human needing to sit down and try.
+
+A hand-written fixed move sequence was tried first and dropped: it desyncs
+silently after a mid-script reset (the script's position no longer matches
+where the reset actually left the game), which showed up as a permanently
+stuck "incomplete" result no turn budget could fix. A policy sidesteps
+this by construction — it's handed the actual current state fresh every
+turn, so there's no script position to go stale. It also scales to new
+maps for free, since nothing about it is written with any particular
+map's topology in mind.
+
+A marking is just a snapshot of where every token currently is, so a
+simulated playout can equally well start from the map's normal initial
+state or from any specific, hand-picked marking worth targeting — a
+dangerous moment found during manual or fuzz-tested play, reproduced
+exactly rather than hoped into existence by a long move sequence. This is
+the "icing" layer: once general fuzzing has found or suggested an
+interesting state, a trial can be seeded to start from exactly there.
+
+    function makeRng(seed: number): () => number {
+      let s = seed >>> 0;
+      return function (): number {
+        s |= 0; s = (s + 0x6D2B79F5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+##Player Policies
+
+A policy only ever sees the current net, the current chomper marking, and
+which dots remain — never anything about which map it's on — so the same
+two policies run unmodified against any GameNet.
+
+randomPolicy picks uniformly among whatever's currently enabled, the same
+rule the ghost itself follows. It needs no notion of progress at all, so a
+low win rate from it doesn't distinguish "the map is hard" from "blind
+luck is bad at joins" — it's a floor, not a fair assessment on its own.
+
+greedyPolicy is a simple-but-competent baseline: multi-source breadth
+first search, starting from every place that still has a dot and walking
+arcs backwards, labels every place with its distance to the nearest dot.
+Each enabled transition is scored by the best (lowest) label among its
+output places, and the policy fires whichever enabled transition gets
+some token closest to a dot, breaking ties on the seeded rng. It has no
+idea a join needs two arms coordinated or that a corridor leads to a
+trap — it only ever asks "what's closest" — so losing to a map despite
+playing greedily is a meaningfully stronger signal than losing to random
+chance.
+
+    type PlayerPolicy = (
+      net: PetriNet, chompers: Marking, dots: Set<string>,
+      rng: () => number,
+    ) => string | null;
+
+    function randomPolicy(
+      net: PetriNet, chompers: Marking, _dots: Set<string>, rng: () => number,
+    ): string | null {
+      const enabled = enabledTransitions(net, chompers);
+      if (enabled.length === 0) return null;
+      return enabled[Math.floor(rng() * enabled.length)];
+    }
+
+    function nearestDotDistances(
+      net: PetriNet, dots: Set<string>,
+    ): Map<string, number> {
+      const dist = new Map<string, number>();
+      const queue: string[] = [];
+      for (const d of dots) { dist.set(d, 0); queue.push(d); }
+      let head = 0;
+      while (head < queue.length) {
+        const cur = queue[head++];
+        const d = dist.get(cur)!;
+        for (const arc of net.arcs) {
+          if (arc.target === cur && !dist.has(arc.source)) {
+            dist.set(arc.source, d + 1);
+            queue.push(arc.source);
+          }
+        }
+      }
+      return dist;
+    }
+
+    function greedyPolicy(
+      net: PetriNet, chompers: Marking, dots: Set<string>, rng: () => number,
+    ): string | null {
+      const enabled = enabledTransitions(net, chompers);
+      if (enabled.length === 0) return null;
+      if (dots.size === 0) return enabled[0];
+
+      const dist = nearestDotDistances(net, dots);
+      let best: string[] = [];
+      let bestScore = Infinity;
+      for (const t of enabled) {
+        const outs = outputArcs(net, t).map(a => a.target);
+        const score = Math.min(...outs.map(p => dist.get(p) ?? Infinity));
+        if (score < bestScore) { bestScore = score; best = [t]; }
+        else if (score === bestScore) { best.push(t); }
+      }
+      return best[Math.floor(rng() * best.length)];
+    }
+
+##Running One Playthrough
+
+A policy is asked fresh every turn, from whatever the actual current state
+is — there is no script position that can go stale, so a reset mid-game
+is just another state the policy reacts to, not a special case.
+
+A start override lets a trial begin from a specific hand-picked marking
+instead of the map's normal initial one, for targeting a known-dangerous
+state directly rather than hoping a long playout wanders into it.
+
+    type Outcome = 'won' | 'lost' | 'incomplete';
+
+    interface StartOverride {
+      chompers?: Array<[string, number]>;
+      ghosts?: Array<[string, number]>;
+    }
+
+    function simulatePlayout(
+      gn: GameNet, policy: PlayerPolicy, seed: number,
+      maxTurns = 200, start?: StartOverride,
+    ): Outcome {
+      const engine = makeEngine(gn);
+      if (start?.chompers) {
+        engine.state.chompers = emptyMarking();
+        for (const [p, c] of start.chompers) markingAddTokens(engine.state.chompers, p, c);
+      }
+      if (start?.ghosts) {
+        engine.state.ghosts = emptyMarking();
+        for (const [p, c] of start.ghosts) markingAddTokens(engine.state.ghosts, p, c);
+      }
+      const rng = makeRng(seed);
+
+      for (let turn = 0; turn < maxTurns; turn++) {
+        if (isWon(engine.state)) return 'won';
+        const move = policy(engine.state.gn.net, engine.state.chompers, engine.state.dots, rng);
+        if (move === null) return 'incomplete';
+
+        playerMove(engine, move);
+        if (engine.phase === 'lost') return 'lost';
+        if (isWon(engine.state)) return 'won';
+
+        let guard = 0;
+        while (engine.phase === 'ghost' && guard++ < 50) {
+          ghostTurn(engine, rng);
+          if (engine.phase === 'lost') return 'lost';
+        }
+      }
+      return isWon(engine.state) ? 'won' : 'incomplete';
+    }
+
+##Running Many Seeds
+
+    interface TrialResult {
+      won: number;
+      lost: number;
+      incomplete: number;
+      total: number;
+    }
+
+    function runTrials(
+      gnFactory: () => GameNet, policy: PlayerPolicy,
+      nTrials: number, baseSeed = 1, maxTurns = 200, start?: StartOverride,
+    ): TrialResult {
+      const result: TrialResult = { won: 0, lost: 0, incomplete: 0, total: nTrials };
+      for (let i = 0; i < nTrials; i++) {
+        const outcome = simulatePlayout(gnFactory(), policy, baseSeed + i, maxTurns, start);
+        result[outcome]++;
+      }
+      return result;
+    }
+
+##Diamond: proving out the generic policies
+
+A hand-written fixed sequence had reported Diamond as unwinnable (0 wins
+in 200 seeded trials) — wrongly, as it turned out. The generic policies
+disagree sharply: randomPolicy wins 25% of the time, greedyPolicy wins
+about 75%. The fixed script's result was an artifact of its own rigidity,
+not a property of the map — see #Game Map's Diamond section for the
+mechanism (dots persist across a life-loss reset, so Diamond rewards
+incremental progress across several cheap attempts rather than requiring
+one clean traversal, which a script with no notion of "good enough for
+now" can't exploit).
+
+This is also the reason Diamond is a good first target for the generic
+policies specifically: the prior (wrong) answer was already on record, so
+disagreement here was a legible signal that the new harness — not the
+map — needed a closer look, rather than something that could pass
+unnoticed.
+
+##Mandala: a structural sanity check, not a fuzz test
+
+This hand-written sequence is kept only to check the win condition itself
+is reachable at all — a mechanism check, not a survival-against-the-ghost
+one (that's what the generic policies are for). Reaching Goal is not the
+same as winning — isWon checks every dot on the map is gone, and the
+straight hub-to-goal cascade never visits Mid, which has its own dot. A
+sequence that actually wins has to detour one corridor through an escape
+to Mid and back, then re-fork that arm to rebuild it.
+
+    const MANDALA_WIN_MOVES = [
+      't_fork0', 't_fork_n1', 't_fork_n2',
+      't_nw_c', 't_sw_c', 't_ne_c', 't_se_c',
+      't_nwc_esc', 't_mid_home', 't_join_e',
+      't_fork0', 't_fork_n1', 't_nw_c', 't_join_w', 't_join',
+    ];
+
+Checked separately from the seeded trials, with the ghost turn skipped
+entirely: this isolates "does the sequence itself reach isWon" from "does
+it survive the ghost," so a failure here points at the sequence being
+wrong rather than at bad luck.
+
+    function _mandalaMovesWinWithoutGhost(): boolean {
+      const engine = makeEngine(makeMandalaMap());
+      engine.state.ghosts = emptyMarking();
+      for (const move of MANDALA_WIN_MOVES) {
+        playerMove(engine, move);
+        if (engine.phase === 'ghost') engine.phase = 'player';
+      }
+      return isWon(engine.state);
+    }
+
+~run
+    const diamondRandom = runTrials(makeDiamondMap, randomPolicy, 200);
+    console.log('Diamond, random policy, 200 seeds:', JSON.stringify(diamondRandom));
+
+    const diamondGreedy = runTrials(makeDiamondMap, greedyPolicy, 200);
+    console.log('Diamond, greedy policy, 200 seeds:', JSON.stringify(diamondGreedy));
+
+---
+
+#Tests
+
+##diamond is winnable — a fixed script had wrongly reported otherwise
+    runTrials(makeDiamondMap, randomPolicy, 200).won >= 20
+    runTrials(makeDiamondMap, greedyPolicy, 200).won >= 100
+
+##mandala win sequence satisfies isWon with no ghost interference
+    _mandalaMovesWinWithoutGhost()
+
+#References
+    #Game Engine
+    #Game Map
+    #Petri Marking
+    #Petri Net

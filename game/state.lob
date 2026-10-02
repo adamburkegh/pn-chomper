@@ -23,18 +23,31 @@ maps expose fork-join coordination from the very first move.
       lives: number;
     }
 
-    function initState(gn: GameNet, lives = 3): GameState {
+Spawning chompers and ghosts is shared between the initial deal and a
+post-death reset, so both read the exact same start/spawn rules from the
+#Game Map.
+
+    function spawnChompers(gn: GameNet): Marking {
       const chompers = emptyMarking();
       for (const startId of gn.playerStarts) {
         markingAddTokens(chompers, startId, gn.startMarkings?.get(startId) ?? 1);
       }
+      return chompers;
+    }
 
+    function spawnGhosts(gn: GameNet): Marking {
       const ghosts = emptyMarking();
       for (const spawnId of gn.ghostSpawns) {
         const outgoing = outputArcs(gn.net, spawnId);
         if (outgoing.length > 0)
           markingAddTokens(ghosts, outgoing[0].target, 1);
       }
+      return ghosts;
+    }
+
+    function initState(gn: GameNet, lives = 3): GameState {
+      const chompers = spawnChompers(gn);
+      const ghosts = spawnGhosts(gn);
 
       const dots = new Set(
         [...gn.net.places.values()]
@@ -72,6 +85,14 @@ This makes splitting tactically meaningful: two chompers grant resilience, as
 a ghost can only eat one per encounter. It also keeps the token semantics
 consistent — removal is always a consumption event.
 
+resolveCollisions returns the place ids where a chomper was just eaten, so
+the renderer can flash the spot — the state mutation and the information a
+caller needs to animate it happen together, in the one place that knows it.
+
+resetToStart and loseLife are shared with the deadlock check below — losing
+a life always means "reset positions," whether a ghost ate your last token
+or the net you're standing on simply has nothing left to fire.
+
     function hasCollision(state: GameState): boolean {
       for (const [placeId, count] of state.chompers) {
         if (count > 0 && (state.ghosts.get(placeId) ?? 0) > 0)
@@ -80,28 +101,48 @@ consistent — removal is always a consumption event.
       return false;
     }
 
-    function resolveCollisions(state: GameState): void {
+    function resetToStart(state: GameState): void {
+      state.chompers = spawnChompers(state.gn);
+      state.ghosts = spawnGhosts(state.gn);
+    }
+
+    function loseLife(state: GameState): void {
+      state.lives -= 1;
+      resetToStart(state);
+    }
+
+    function resolveCollisions(state: GameState): string[] {
       const eaten: string[] = [];
       for (const [placeId, count] of state.chompers) {
         if (count > 0 && (state.ghosts.get(placeId) ?? 0) > 0)
           eaten.push(placeId);
       }
-      if (eaten.length === 0) return;
+      if (eaten.length === 0) return eaten;
       for (const placeId of eaten)
         markingRemoveTokens(state.chompers, placeId, 1);
       const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
-      if (total > 0) return;
-      state.lives -= 1;
-      state.chompers.clear();
-      for (const startId of state.gn.playerStarts) {
-        markingAddTokens(state.chompers, startId, state.gn.startMarkings?.get(startId) ?? 1);
-      }
-      state.ghosts.clear();
-      for (const spawnId of state.gn.ghostSpawns) {
-        const outgoing = outputArcs(state.gn.net, spawnId);
-        if (outgoing.length > 0)
-          markingAddTokens(state.ghosts, outgoing[0].target, 1);
-      }
+      if (total > 0) return eaten;
+      loseLife(state);
+      return eaten;
+    }
+
+##Deadlock
+
+A deadlock is a Petri-net concept in its own right: a marking with tokens
+still in it, but no transition anywhere enabled for any of them. On a map
+like Mandala, where a hard two-token join has no slack, losing one half of
+a pair can strand the other half forever with nowhere left to fire — exactly
+the condition the escape routes exist to prevent, but a design can still
+produce one, and a player should never be stuck looking at a frozen board
+with no explanation. Treating it the same as a fatal collision — lose a
+life, reset to start — keeps it a recoverable setback rather than a silent
+hang, and teaches the concept the same way collisions teach "the ghost ate
+you": by naming the Petri-net event that just happened.
+
+    function isDeadlocked(state: GameState): boolean {
+      const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
+      if (total === 0) return false;
+      return enabledTransitions(state.gn.net, state.chompers).length === 0;
     }
 
 ##Win and Lose Conditions
@@ -162,8 +203,35 @@ The examples below use the circuit map as a representative multi-place net.
       };
     }
 
+A lone token at the Mandala map's west collector is a reachable deadlock:
+t_join_w produces it by consuming both nw_c and sw_c, so getting there means
+nothing is left on the west arm to retreat to — and t_join needs a token in
+c_e too, which this scenario doesn't have. c_w has no escape route of its
+own, unlike the corridor places.
+
+    function _testDeadlock(): boolean {
+      const st = initState(makeMandalaMap());
+      st.chompers.clear();
+      markingAddTokens(st.chompers, 'c_w', 1);
+      return isDeadlocked(st);
+    }
+
+    function _testDeadlockRecovery(): {
+      livesLost: boolean; resetToStart: boolean;
+    } {
+      const st = initState(makeMandalaMap());
+      st.chompers.clear();
+      markingAddTokens(st.chompers, 'c_w', 1);
+      loseLife(st);
+      return {
+        livesLost:    st.lives === 2,
+        resetToStart: tokenCount(st.chompers, 'hub') === 1,
+      };
+    }
+
 ~example
     tokenCount(_s0.chompers, 'depot') === 1
+    !isDeadlocked(_s0)
     _s0.dots.has('nw')
     _s0.dots.has('nn')
     _s0.dots.has('ne')
@@ -196,6 +264,13 @@ The examples below use the circuit map as a representative multi-place net.
 ##last chomper eaten loses a life and resets to start
     _testLastChomperEaten().livesLost
     _testLastChomperEaten().resetToStart
+
+##a lone token at the west collector is deadlocked
+    _testDeadlock()
+
+##deadlock recovery loses a life and resets to start
+    _testDeadlockRecovery().livesLost
+    _testDeadlockRecovery().resetToStart
 
 #References
     #Petri Net

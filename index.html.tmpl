@@ -33,6 +33,14 @@
       opacity: 0; transition: opacity 0.4s;
       pointer-events: none;
     }
+    #life-lost, #deadlock {
+      position: fixed; top: 20%; left: 0; right: 0;
+      text-align: center;
+      color: #ff4444; font: bold 22px monospace;
+      opacity: 0; transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    #deadlock { color: #ff9900; }
 
     /* Menu overlay */
     #menu {
@@ -112,6 +120,8 @@
   </div>
   <div id="version"><!-- NOTLOB_VERSION --></div>
   <div id="map-name"></div>
+  <div id="life-lost">Life lost ...</div>
+  <div id="deadlock">Deadlock ...</div>
   <button id="menu-btn" aria-label="Open menu">☰</button>
   <div id="startup-hint"> click a glowing doorway to play · Hit ☰ or ESC for maps &amp; settings</div>
   <div id="menu">

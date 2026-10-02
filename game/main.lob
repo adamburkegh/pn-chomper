@@ -43,6 +43,8 @@ the ?map= query parameter on startup.
       { name: 'Split (Y-junction)',   fn: makeSplitMap,    tag: 'built-in' },
       { name: 'Diamond (sync + detours)', fn: makeDiamondMap, tag: 'built-in' },
       { name: 'Circuit (fork + join)',  fn: makeCircuitMap,  tag: 'built-in' },
+      // Mandala (cascade fork) — still being difficulty-tuned, switched off
+      // for this commit rather than shipped half-tuned. See sim/playtest.lob.
     ];
     let mapIdx = 0;
 
@@ -69,6 +71,24 @@ the ?map= query parameter on startup.
       const el = document.getElementById('map-name') as HTMLElement | null;
       if (el) { el.textContent = name; el.style.opacity = '1'; }
       setTimeout(() => { if (el) el.style.opacity = '0'; }, 2000);
+    }
+
+    // A non-fatal collision resets chompers and ghosts to their start
+    // positions, same as game-over, but with lives remaining. Without this
+    // it reads as the game randomly resetting for no reason.
+    function showLifeLost(): void {
+      const el = document.getElementById('life-lost') as HTMLElement | null;
+      if (el) el.style.opacity = '1';
+      setTimeout(() => { if (el) el.style.opacity = '0'; }, 1200);
+    }
+
+    // A deadlocked marking (tokens remain, but nothing is enabled for any
+    // of them) also loses a life and resets — named distinctly from a
+    // collision since the cause is structural, not a ghost catching you.
+    function showDeadlock(): void {
+      const el = document.getElementById('deadlock') as HTMLElement | null;
+      if (el) el.style.opacity = '1';
+      setTimeout(() => { if (el) el.style.opacity = '0'; }, 1200);
     }
 
     function selectMap(i: number): void {
@@ -196,8 +216,22 @@ the ?map= query parameter on startup.
       const y = (e.clientY - rect.top) / s;
       const tid = hitTestTransition(gn.net, x, y);
       if (tid) {
+        const livesBeforeMove = eng.state.lives;
+        const deadlockBeforeMove = eng.deadlock;
         playerMove(eng, tid);
-        setTimeout(() => ghostTurn(eng), 400);
+        if (eng.state.lives < livesBeforeMove && eng.phase !== 'lost') {
+          if (eng.deadlock !== deadlockBeforeMove) showDeadlock();
+          else showLifeLost();
+        }
+        setTimeout(() => {
+          const livesBeforeGhost = eng.state.lives;
+          const deadlockBeforeGhost = eng.deadlock;
+          ghostTurn(eng);
+          if (eng.state.lives < livesBeforeGhost && eng.phase !== 'lost') {
+            if (eng.deadlock !== deadlockBeforeGhost) showDeadlock();
+            else showLifeLost();
+          }
+        }, 400);
       }
     });
 

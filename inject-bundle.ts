@@ -40,9 +40,32 @@ async function main(): Promise<void> {
 
   console.log(`inject-bundle: bundling ${path.relative(projectRoot, mainArtifact)}`);
 
+  // notlob compiles every ~run claim with a Node "is this the directly
+  // executed main module" guard — `import.meta.url === pathToFileURL(...)`.
+  // That's correct for `notlob run <file>` but meaningless (and fatal —
+  // `require("node:url")` doesn't exist) in a browser bundle, where the
+  // ~run block must simply execute unconditionally on load. Strip it here
+  // rather than in notlob itself, since this browser-bundling concern is
+  // specific to this project's build hook.
+  let mainSource = fs.readFileSync(mainArtifact, 'utf8');
+  mainSource = mainSource
+    .replace(/^import\s*\{\s*pathToFileURL\s*\}\s*from\s*['"]node:url['"];\s*\n/m, '')
+    .replace(
+      /if\s*\(\s*import\.meta\.url\s*===\s*pathToFileURL\(process\.argv\[1\]\)\.href\s*\)\s*\{/,
+      '{',
+    );
+  if (mainSource === fs.readFileSync(mainArtifact, 'utf8')) {
+    console.warn('inject-bundle: expected Node run-guard not found — notlob codegen may have changed');
+  }
+
   // Bundle with esbuild — iife format so it runs immediately in the browser.
   const result = await build({
-    entryPoints: [mainArtifact],
+    stdin: {
+      contents: mainSource,
+      resolveDir: path.dirname(mainArtifact),
+      sourcefile: path.basename(mainArtifact),
+      loader: 'ts',
+    },
     bundle: false,    // all code is already inlined by notlob build
     format: 'iife',
     target: 'es2020',

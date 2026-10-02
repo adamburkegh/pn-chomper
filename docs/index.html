@@ -33,6 +33,14 @@
       opacity: 0; transition: opacity 0.4s;
       pointer-events: none;
     }
+    #life-lost, #deadlock {
+      position: fixed; top: 20%; left: 0; right: 0;
+      text-align: center;
+      color: #ff4444; font: bold 22px monospace;
+      opacity: 0; transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    #deadlock { color: #ff9900; }
 
     /* Menu overlay */
     #menu {
@@ -112,6 +120,8 @@
   </div>
   <div id="version">v0.7.2</div>
   <div id="map-name"></div>
+  <div id="life-lost">Life lost ...</div>
+  <div id="deadlock">Deadlock ...</div>
   <button id="menu-btn" aria-label="Open menu">☰</button>
   <div id="startup-hint"> click a glowing doorway to play · Hit ☰ or ESC for maps &amp; settings</div>
   <div id="menu">
@@ -122,8 +132,6 @@
   </div>
   <script>
 (() => {
-  var import_node_url = require("node:url");
-  const import_meta = {};
   function makeNet() {
     return { places: /* @__PURE__ */ new Map(), transitions: /* @__PURE__ */ new Map(), arcs: [] };
   }
@@ -174,6 +182,43 @@
   addArc(_testNet, "a1", "p1", "t1");
   addArc(_testNet, "a2", "t1", "p2");
   addArc(_testNet, "a3", "t1", "p3");
+  function emptyMarking() {
+    return /* @__PURE__ */ new Map();
+  }
+  function tokenCount(m, placeId) {
+    return m.get(placeId) ?? 0;
+  }
+  function markingAddTokens(m, placeId, count) {
+    m.set(placeId, (m.get(placeId) ?? 0) + count);
+  }
+  function markingRemoveTokens(m, placeId, count) {
+    const current = m.get(placeId) ?? 0;
+    if (current < count) throw new Error(
+      `Cannot remove ${count} tokens from '${placeId}' \u2014 only ${current} present`
+    );
+    m.set(placeId, current - count);
+  }
+  function isEnabled(net, marking, transitionId) {
+    return inputArcs(net, transitionId).every(
+      (arc) => tokenCount(marking, arc.source) >= arc.weight
+    );
+  }
+  function fire(net, marking, transitionId) {
+    if (!isEnabled(net, marking, transitionId))
+      throw new Error(`Transition '${transitionId}' is not enabled`);
+    const next = new Map(marking);
+    for (const arc of inputArcs(net, transitionId))
+      markingRemoveTokens(next, arc.source, arc.weight);
+    for (const arc of outputArcs(net, transitionId))
+      markingAddTokens(next, arc.target, arc.weight);
+    return next;
+  }
+  function enabledTransitions(net, marking) {
+    return [...net.transitions.keys()].filter((id) => isEnabled(net, marking, id));
+  }
+  const _m0 = emptyMarking();
+  markingAddTokens(_m0, "p1", 1);
+  const _m1 = fire(_testNet, _m0, "t1");
   function gamePlace(net, id, label, x, y, hasDot = true) {
     const p = addPlace(net, id, label, x, y);
     p.hasDot = hasDot;
@@ -301,7 +346,7 @@
     addTransition(net, "t_sw_ss", "SW\u2192S", 405, 680);
     addTransition(net, "t_ss_se", "S\u2192SE", 615, 680);
     addTransition(net, "t_sync", "Sync", 800, 440);
-    addTransition(net, "t_rst", "Restart", 490, 80);
+    addTransition(net, "t_rst", "Restart", 270, 65);
     addTransition(net, "t_ne_mid", "NE\u2192Mid", 620, 330);
     addTransition(net, "t_se_mid", "SE\u2192Mid", 620, 550);
     addTransition(net, "t_mid_dep", "Mid\u2192Home", 285, 380);
@@ -329,54 +374,25 @@
     addArc(net, "c22", "t_mid_dep", "depot");
     return { net, ghostSpawns: ["t_sync"], playerStarts: ["depot"] };
   }
-  function emptyMarking() {
-    return /* @__PURE__ */ new Map();
-  }
-  function tokenCount(m, placeId) {
-    return m.get(placeId) ?? 0;
-  }
-  function markingAddTokens(m, placeId, count) {
-    m.set(placeId, (m.get(placeId) ?? 0) + count);
-  }
-  function markingRemoveTokens(m, placeId, count) {
-    const current = m.get(placeId) ?? 0;
-    if (current < count) throw new Error(
-      `Cannot remove ${count} tokens from '${placeId}' \u2014 only ${current} present`
-    );
-    m.set(placeId, current - count);
-  }
-  function isEnabled(net, marking, transitionId) {
-    return inputArcs(net, transitionId).every(
-      (arc) => tokenCount(marking, arc.source) >= arc.weight
-    );
-  }
-  function fire(net, marking, transitionId) {
-    if (!isEnabled(net, marking, transitionId))
-      throw new Error(`Transition '${transitionId}' is not enabled`);
-    const next = new Map(marking);
-    for (const arc of inputArcs(net, transitionId))
-      markingRemoveTokens(next, arc.source, arc.weight);
-    for (const arc of outputArcs(net, transitionId))
-      markingAddTokens(next, arc.target, arc.weight);
-    return next;
-  }
-  function enabledTransitions(net, marking) {
-    return [...net.transitions.keys()].filter((id) => isEnabled(net, marking, id));
-  }
-  const _m0 = emptyMarking();
-  markingAddTokens(_m0, "p1", 1);
-  const _m1 = fire(_testNet, _m0, "t1");
-  function initState(gn, lives = 3) {
+  function spawnChompers(gn) {
     const chompers = emptyMarking();
     for (const startId of gn.playerStarts) {
       markingAddTokens(chompers, startId, gn.startMarkings?.get(startId) ?? 1);
     }
+    return chompers;
+  }
+  function spawnGhosts(gn) {
     const ghosts = emptyMarking();
     for (const spawnId of gn.ghostSpawns) {
       const outgoing = outputArcs(gn.net, spawnId);
       if (outgoing.length > 0)
         markingAddTokens(ghosts, outgoing[0].target, 1);
     }
+    return ghosts;
+  }
+  function initState(gn, lives = 3) {
+    const chompers = spawnChompers(gn);
+    const ghosts = spawnGhosts(gn);
     const dots = new Set(
       [...gn.net.places.values()].filter((p) => p.hasDot).map((p) => p.id)
     );
@@ -390,28 +406,32 @@
       }
     }
   }
+  function resetToStart(state) {
+    state.chompers = spawnChompers(state.gn);
+    state.ghosts = spawnGhosts(state.gn);
+  }
+  function loseLife(state) {
+    state.lives -= 1;
+    resetToStart(state);
+  }
   function resolveCollisions(state) {
     const eaten = [];
     for (const [placeId, count] of state.chompers) {
       if (count > 0 && (state.ghosts.get(placeId) ?? 0) > 0)
         eaten.push(placeId);
     }
-    if (eaten.length === 0) return;
+    if (eaten.length === 0) return eaten;
     for (const placeId of eaten)
       markingRemoveTokens(state.chompers, placeId, 1);
     const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
-    if (total > 0) return;
-    state.lives -= 1;
-    state.chompers.clear();
-    for (const startId of state.gn.playerStarts) {
-      markingAddTokens(state.chompers, startId, state.gn.startMarkings?.get(startId) ?? 1);
-    }
-    state.ghosts.clear();
-    for (const spawnId of state.gn.ghostSpawns) {
-      const outgoing = outputArcs(state.gn.net, spawnId);
-      if (outgoing.length > 0)
-        markingAddTokens(state.ghosts, outgoing[0].target, 1);
-    }
+    if (total > 0) return eaten;
+    loseLife(state);
+    return eaten;
+  }
+  function isDeadlocked(state) {
+    const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
+    if (total === 0) return false;
+    return enabledTransitions(state.gn.net, state.chompers).length === 0;
   }
   function isWon(state) {
     return state.dots.size === 0;
@@ -424,6 +444,12 @@
   function makeEngine(gn) {
     return { state: initState(gn), phase: "player" };
   }
+  function applyDeadlock(engine) {
+    const { state } = engine;
+    loseLife(state);
+    engine.deadlock = { at: Date.now() };
+    engine.phase = isLost(state) ? "lost" : "player";
+  }
   function playerMove(engine, transitionId) {
     if (engine.phase !== "player") return;
     const { state } = engine;
@@ -433,7 +459,8 @@
     state.chompers = fire(net, state.chompers, transitionId);
     eatDots(state);
     const livesBefore = state.lives;
-    resolveCollisions(state);
+    const eaten = resolveCollisions(state);
+    if (eaten.length > 0) engine.eaten = { places: eaten, at: Date.now() };
     if (isLost(state)) {
       engine.phase = "lost";
       return;
@@ -446,20 +473,29 @@
       engine.phase = "won";
       return;
     }
+    if (isDeadlocked(state)) {
+      applyDeadlock(engine);
+      return;
+    }
     engine.phase = "ghost";
   }
-  function ghostTurn(engine) {
+  function ghostTurn(engine, rng = Math.random) {
     if (engine.phase !== "ghost") return;
     const { state } = engine;
     const net = state.gn.net;
     const enabled = enabledTransitions(net, state.ghosts);
     if (enabled.length > 0) {
-      const pick = enabled[Math.floor(Math.random() * enabled.length)];
+      const pick = enabled[Math.floor(rng() * enabled.length)];
       state.ghosts = fire(net, state.ghosts, pick);
     }
-    resolveCollisions(state);
+    const eaten = resolveCollisions(state);
+    if (eaten.length > 0) engine.eaten = { places: eaten, at: Date.now() };
     if (isLost(state)) {
       engine.phase = "lost";
+      return;
+    }
+    if (isDeadlocked(state)) {
+      applyDeadlock(engine);
       return;
     }
     engine.phase = "player";
@@ -578,6 +614,14 @@
     ctx.fillStyle = "#cc44ff";
     ctx.fill();
   }
+  const EATEN_FLASH_MS = 450;
+  function drawEatenFlash(ctx, x, y, radius, t) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius + t * 18, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,68,68,${1 - t})`;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
   function transitionKind(net, id) {
     if (outputArcs(net, id).length > 1) return "fork";
     if (inputArcs(net, id).length > 1) return "join";
@@ -647,6 +691,16 @@
         tokenCount(state.ghosts, p.id),
         nodeRadius
       );
+    }
+    if (engine.eaten) {
+      const elapsed = Date.now() - engine.eaten.at;
+      if (elapsed < EATEN_FLASH_MS) {
+        const t = elapsed / EATEN_FLASH_MS;
+        for (const placeId of engine.eaten.places) {
+          const p = net.places.get(placeId);
+          if (p) drawEatenFlash(ctx, p.x, p.y, nodeRadius, t);
+        }
+      }
     }
     endfont = "18px monospace";
     endmsg = "press R to restart, ESC to choose another map";
@@ -849,9 +903,11 @@
     { name: "Split (Y-junction)", fn: makeSplitMap, tag: "built-in" },
     { name: "Diamond (sync + detours)", fn: makeDiamondMap, tag: "built-in" },
     { name: "Circuit (fork + join)", fn: makeCircuitMap, tag: "built-in" }
+    // Mandala (cascade fork) — still being difficulty-tuned, switched off
+    // for this commit rather than shipped half-tuned. See sim/playtest.lob.
   ];
   let mapIdx = 0;
-  if (import_meta.url === (0, import_node_url.pathToFileURL)(process.argv[1]).href) {
+  {
     let applyScale = function() {
       const w = window.innerWidth || document.documentElement.clientWidth || DESIGN_W;
       const h = window.innerHeight || document.documentElement.clientHeight || DESIGN_H;
@@ -866,6 +922,18 @@
       setTimeout(() => {
         if (el) el.style.opacity = "0";
       }, 2e3);
+    }, showLifeLost = function() {
+      const el = document.getElementById("life-lost");
+      if (el) el.style.opacity = "1";
+      setTimeout(() => {
+        if (el) el.style.opacity = "0";
+      }, 1200);
+    }, showDeadlock = function() {
+      const el = document.getElementById("deadlock");
+      if (el) el.style.opacity = "1";
+      setTimeout(() => {
+        if (el) el.style.opacity = "0";
+      }, 1200);
     }, selectMap = function(i) {
       mapIdx = i;
       gn = mapList[i].fn();
@@ -929,6 +997,7 @@
       render(rnd, eng);
       requestAnimationFrame(loop);
     };
+    var applyScale2 = applyScale, showMapName2 = showMapName, showLifeLost2 = showLifeLost, showDeadlock2 = showDeadlock, selectMap2 = selectMap, buildMenuItems2 = buildMenuItems, menuActions2 = menuActions, renderMenu2 = renderMenu, showMenu2 = showMenu, hideMenu2 = hideMenu, loop2 = loop;
     const canvas = document.getElementById("game-canvas");
     const DESIGN_W = 950;
     const DESIGN_H = 780;
@@ -987,8 +1056,22 @@
       const y = (e.clientY - rect.top) / s;
       const tid = hitTestTransition(gn.net, x, y);
       if (tid) {
+        const livesBeforeMove = eng.state.lives;
+        const deadlockBeforeMove = eng.deadlock;
         playerMove(eng, tid);
-        setTimeout(() => ghostTurn(eng), 400);
+        if (eng.state.lives < livesBeforeMove && eng.phase !== "lost") {
+          if (eng.deadlock !== deadlockBeforeMove) showDeadlock();
+          else showLifeLost();
+        }
+        setTimeout(() => {
+          const livesBeforeGhost = eng.state.lives;
+          const deadlockBeforeGhost = eng.deadlock;
+          ghostTurn(eng);
+          if (eng.state.lives < livesBeforeGhost && eng.phase !== "lost") {
+            if (eng.deadlock !== deadlockBeforeGhost) showDeadlock();
+            else showLifeLost();
+          }
+        }, 400);
       }
     });
     document.addEventListener("keydown", (e) => {

@@ -6,28 +6,53 @@ determines whether the game is over. It is deliberately free of any rendering
 concern — the renderer reads state and draws; the engine mutates state.
 
 Player turns and ghost turns alternate. On a player turn the engine fires one
-transition in the chomper marking. On the ghost turn the engine fires a random
-enabled transition for each ghost token. This creates an autonomous adversary
-whose movement is governed by the same Petri net firing rules as the player.
-Both operations take the PetriNet as context for which transitions exist and
-how they connect to places.
+transition in the chomper marking. On the ghost turn it likewise fires just
+one transition, picked at random from everything currently enabled across
+the whole ghost marking — the same one-fire-per-turn rule as the player,
+regardless of how many chompers or how many ghosts exist. This creates an
+autonomous adversary whose movement is governed by the same Petri net firing
+rules as the player. Both operations take the PetriNet as context for which
+transitions exist and how they connect to places.
 
     type Phase = 'player' | 'ghost' | 'won' | 'lost';
+
+    interface EatenEvent {
+      places: string[];
+      at: number;
+    }
+
+    interface DeadlockEvent {
+      at: number;
+    }
 
     interface Engine {
       state: GameState;
       phase: Phase;
+      eaten?: EatenEvent;
+      deadlock?: DeadlockEvent;
     }
 
     function makeEngine(gn: GameNet): Engine {
       return { state: initState(gn), phase: 'player' };
     }
 
+A deadlocked marking is treated the same as a fatal collision — a life
+lost, positions reset — since both playerMove and ghostTurn can be the move
+that strands the last chomper with nothing left to fire.
+
+    function applyDeadlock(engine: Engine): void {
+      const { state } = engine;
+      loseLife(state);
+      engine.deadlock = { at: Date.now() };
+      engine.phase = isLost(state) ? 'lost' : 'player';
+    }
+
 ##Player Move
 
 The player chooses a transition id. The engine validates that it is enabled
 and that it has at least one chomper token in an input place, then fires it.
-After firing, dots are eaten and collisions checked.
+After firing, dots are eaten and collisions checked. If a chomper was eaten,
+engine.eaten records where and when, so the renderer can flash the spot.
 
     function playerMove(engine: Engine, transitionId: string): void {
       if (engine.phase !== 'player') return;
@@ -41,34 +66,92 @@ After firing, dots are eaten and collisions checked.
       eatDots(state);
 
       const livesBefore = state.lives;
-      resolveCollisions(state);
+      const eaten = resolveCollisions(state);
+      if (eaten.length > 0) engine.eaten = { places: eaten, at: Date.now() };
       if (isLost(state)) { engine.phase = 'lost'; return; }
       if (state.lives < livesBefore) { engine.phase = 'player'; return; }
 
       if (isWon(state)) { engine.phase = 'won'; return; }
+      if (isDeadlocked(state)) { applyDeadlock(engine); return; }
       engine.phase = 'ghost';
     }
 
 ##Ghost Turn
 
-On the ghost turn, each ghost token fires a randomly chosen enabled transition.
-If no transition is enabled for a ghost token (the ghost is stuck), it stays
-put. After all ghosts move, collisions are rechecked.
+On the ghost turn, exactly one transition fires, picked at random from
+everything enabled across the whole ghost marking — mirroring the player,
+who also gets one move per turn regardless of how many chompers are in
+play. Every ghost token not involved in that single firing stays exactly
+where it is, even if it individually had other moves available; if nothing
+at all is enabled, no ghost moves this turn. One practical consequence: a
+ghost population that has grown (a map may let a fork split a ghost token
+same as a chomper) doesn't get more actions per turn for it — more tokens
+compete for the same one pick, so each one moves less often on average.
+After the ghost moves, collisions are rechecked.
 
-    function ghostTurn(engine: Engine): void {
+The random source is an injectable parameter, defaulting to Math.random,
+so a seeded generator can drive deterministic, repeatable simulated
+playthroughs without the real game ever needing to know that's possible.
+
+    function ghostTurn(engine: Engine, rng: () => number = Math.random): void {
       if (engine.phase !== 'ghost') return;
       const { state } = engine;
       const net = state.gn.net;
 
       const enabled = enabledTransitions(net, state.ghosts);
       if (enabled.length > 0) {
-        const pick = enabled[Math.floor(Math.random() * enabled.length)];
+        const pick = enabled[Math.floor(rng() * enabled.length)];
         state.ghosts = fire(net, state.ghosts, pick);
       }
 
-      resolveCollisions(state);
+      const eaten = resolveCollisions(state);
+      if (eaten.length > 0) engine.eaten = { places: eaten, at: Date.now() };
       if (isLost(state)) { engine.phase = 'lost'; return; }
+      if (isDeadlocked(state)) { applyDeadlock(engine); return; }
       engine.phase = 'player';
+    }
+
+The claim below pins the one-fire-per-turn behaviour down as a runnable
+fact rather than just prose: two ghost tokens, each with its own distinct
+enabled transition, so a per-token implementation would move both and a
+one-fire implementation moves exactly one. If this ever starts failing,
+the firing rule changed and the prose above needs rewriting to match —
+that coupling is the point.
+
+    function _testGhostTurnFiresOnce(): boolean {
+      const net = makeNet();
+      // 'start' is where the chomper sits — kept apart from a/b/x/y so it
+      // can never collide with a ghost token, and given its own harmless
+      // transition so the chomper marking is never deadlocked (which
+      // would reset the ghost marking we're trying to observe here).
+      addPlace(net, 'start', 'Start', -100, 0);
+      addPlace(net, 'home', 'Home', -100, 100);
+      addTransition(net, 'tstart', 'TStart', -100, 50);
+      addArc(net, 'is', 'start', 'tstart');
+      addArc(net, 'os', 'tstart', 'home');
+
+      addPlace(net, 'a', 'A', 0, 0);
+      addPlace(net, 'b', 'B', 100, 0);
+      addPlace(net, 'x', 'X', 0, 100);
+      addPlace(net, 'y', 'Y', 100, 100);
+      addTransition(net, 'ta', 'TA', 0, 50);
+      addTransition(net, 'tb', 'TB', 100, 50);
+      addArc(net, 'i1', 'a', 'ta');
+      addArc(net, 'o1', 'ta', 'x');
+      addArc(net, 'i2', 'b', 'tb');
+      addArc(net, 'o2', 'tb', 'y');
+
+      const eng = makeEngine({ net, playerStarts: ['start'], ghostSpawns: [] });
+      eng.phase = 'ghost';
+      eng.state.ghosts = emptyMarking();
+      markingAddTokens(eng.state.ghosts, 'a', 1);
+      markingAddTokens(eng.state.ghosts, 'b', 1);
+
+      ghostTurn(eng);
+
+      const movedA = tokenCount(eng.state.ghosts, 'x') === 1;
+      const movedB = tokenCount(eng.state.ghosts, 'y') === 1;
+      return movedA !== movedB;  // exactly one moved — not both, not neither
     }
 
 ##Enabled Player Transitions
@@ -106,6 +189,25 @@ transition, check that chompers appear in both arms.
       return eng.phase;
     }
 
+A real deadlock reached through an actual move, not just the isDeadlocked
+check in isolation: firing West Sync with only the two west corridors
+filled leaves a lone token at c_w with nothing left to fire.
+
+    function _testDeadlockViaPlayerMove(): {
+      phase: Phase; livesLost: boolean; deadlockRecorded: boolean;
+    } {
+      const eng = makeEngine(makeMandalaMap());
+      eng.state.chompers = emptyMarking();
+      markingAddTokens(eng.state.chompers, 'nw_c', 1);
+      markingAddTokens(eng.state.chompers, 'sw_c', 1);
+      playerMove(eng, 't_join_w');
+      return {
+        phase:            eng.phase,
+        livesLost:        eng.state.lives === 2,
+        deadlockRecorded: eng.deadlock !== undefined,
+      };
+    }
+
 ~example
     makeEngine(makeCircuitMap()).phase === 'player'
     playerEnabledTransitions(makeEngine(makeCircuitMap())).length === 1
@@ -123,6 +225,14 @@ transition, check that chompers appear in both arms.
 
 ##after fork phase switches to ghost
     _phaseAfterPlayerMove() === 'ghost'
+
+##firing into a deadlocked marking loses a life and resets
+    _testDeadlockViaPlayerMove().phase === 'player'
+    _testDeadlockViaPlayerMove().livesLost
+    _testDeadlockViaPlayerMove().deadlockRecorded
+
+##ghost turn fires exactly one transition, not one per token
+    _testGhostTurnFiresOnce()
 
 #References
     #Petri Marking

@@ -5,9 +5,11 @@ knows whether it contains a dot for the player to eat, and each transition can
 be marked as a ghost-spawn point. The net topology is the maze; the decorations
 are the game-layer metadata.
 
-Three built-in maps are supplied. The Classic map is a figure-eight. The
+Several built-in maps are supplied. The Classic map is a figure-eight. The
 Split map demonstrates token splitting with a Y-junction and long restart
-corridors. The Cross map is the original simple symmetric demo.
+corridors. Diamond and Circuit extend fork-join into a proper maze. Mandala
+scales splitting further still, into a two-level 1→2→4 cascade that
+reconverges in pairs.
 
     interface GamePlace extends Place {
       hasDot: boolean;
@@ -143,17 +145,76 @@ long to make the return journey feel like a proper map traversal.
 ##Diamond Map
 
 The diamond extends the basic split-then-merge with optional detour rooms
-on each arm. Fork sends one token into the Upper arm and one into the Lower
-arm. Each arm offers a direct corridor (eat one dot) or a detour room (eat
-two dots but take an extra step). Sync requires tokens in BOTH arm exits
-simultaneously — the player must navigate both chompers into position before
-the merge fires. The ghost starts at Finish and loops back, adding time
-pressure. The restart corridor arcs over the top to complete the cycle.
+on each arm. Fork sends one token into the Upper arm and one into the
+Lower arm. Each arm offers a direct corridor (eat one dot) or a detour
+room (eat two dots but take an extra step). Sync requires tokens in BOTH
+arm exits simultaneously. The ghost spawns at Sync and reaches Start in a
+single hop (Finish → Restart → Start); Start's only onward transition is
+Fork itself, so a ghost arriving there replicates almost immediately, the
+same mechanism behind Mandala's fork-replication — and this map has no
+escape routes to recover a stranded token the way Mandala or Circuit do.
+
+A stranded lone token here really was fatal, once: before the game engine
+gained deadlock detection, a marking like {l2: 1} with Sync unsatisfied
+and nowhere else to go simply froze — no enabled transitions, ever again,
+for any player regardless of skill. Diamond was genuinely unwinnable in
+that state, not just difficult. Deadlock detection (added for Mandala's
+benefit, generic to any map) turns that freeze into a costed, recoverable
+reset instead, and that recoverability — not cleverer play — is the real
+reason Diamond is winnable at all now.
+
+Once it's recoverable, a hand-written scripted playthrough still reported
+Diamond as unwinnable: 0 wins in 200 seeded trials (sim/playtest.lob). That
+part was a tooling artifact, not a map property — the script was rigid
+(a fixed detour order regardless of where the ghost was) and couldn't
+exploit the recovery. A generic reactive policy, tried once the rigidity
+was suspected, wins roughly three-quarters of the time. The reason a
+stranded token costs so little even though it looks catastrophic: dots
+already eaten stay eaten across a reset, so losing a life is lost progress
+on timing, not lost progress on the map — a few cheap failed attempts, each banking
+whatever dots it reached, comfortably clears all seven dot places before
+three lives run out. The restart corridor arcs over the top to complete
+the cycle.
 
     function _arcsBipartite(gn: GameNet): boolean {
       return gn.net.arcs.every(a =>
         gn.net.places.has(a.source) !== gn.net.places.has(a.target)
       );
+    }
+
+A node that sits on top of an arc it isn't part of reads, on screen, as
+though that arc terminates there — exactly the ambiguity Mandala's corridor
+places had before being moved off the fork-to-petal diagonal they used to
+sit on. This check catches that class of layout bug for any map: for every
+node, and every arc it's not an endpoint of, the node must stay clear of
+the arc's line segment by some minimum pixel distance.
+
+    function _distToSegment(
+      px: number, py: number,
+      x1: number, y1: number, x2: number, y2: number,
+    ): number {
+      const dx = x2 - x1, dy = y2 - y1;
+      const lenSq = dx * dx + dy * dy;
+      const t = lenSq === 0 ? 0 :
+        Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+      const ex = x1 + t * dx, ey = y1 + t * dy;
+      return Math.hypot(px - ex, py - ey);
+    }
+
+    function _nodesClearOfForeignArcs(gn: GameNet, clearance = 20): boolean {
+      const { net } = gn;
+      const byId = new Map([...net.places.values(), ...net.transitions.values()]
+        .map(n => [n.id, n]));
+      for (const node of byId.values()) {
+        for (const arc of net.arcs) {
+          if (arc.source === node.id || arc.target === node.id) continue;
+          const a = byId.get(arc.source), b = byId.get(arc.target);
+          if (!a || !b) continue;
+          if (_distToSegment(node.x, node.y, a.x, a.y, b.x, b.y) < clearance)
+            return false;
+        }
+      }
+      return true;
     }
 
     function makeDiamondMap(): GameNet {
@@ -250,7 +311,7 @@ the ghost moving rather than stuck waiting at an arm-end.
       addTransition(net, 't_sw_ss',  'SW→S',    405, 680);
       addTransition(net, 't_ss_se',  'S→SE',    615, 680);
       addTransition(net, 't_sync',   'Sync',    800, 440);  // JOIN: {ne,se}→east
-      addTransition(net, 't_rst',    'Restart', 490,  80);  // long restart
+      addTransition(net, 't_rst',    'Restart', 270,  65);  // long restart
       addTransition(net, 't_ne_mid', 'NE→Mid',  620, 330);  // escape from NE
       addTransition(net, 't_se_mid', 'SE→Mid',  620, 550);  // escape from SE
       addTransition(net, 't_mid_dep','Mid→Home',285, 380);  // return to depot
@@ -279,6 +340,172 @@ the ghost moving rather than stuck waiting at an arm-end.
       addArc(net, 'c22', 't_mid_dep','depot');
 
       return { net, ghostSpawns: ['t_sync'], playerStarts: ['depot'] };
+    }
+
+##Mandala Map
+
+Mandala teaches splitting as a *cascade* rather than a single fork. The first
+fork sends one token west and one east; each of those immediately forks
+again, so one token becomes two becomes four. The four then converge in
+pairs through two synchronising joins, and those two survivors converge
+through a final join back to one.
+
+A petal does not feed its join directly — each arm has a corridor step
+(petal → corridor place) between arrival and the join. Because only one
+transition fires per player turn, the two tokens born from the same fork
+still have to be advanced along their corridors on separate turns, which is
+what actually creates the coordination and timing tension the cascade is
+meant to teach; wiring a petal straight into its join would let both sides
+arrive "for free" in the same fire that created them.
+
+Each corridor place also has an escape route home, routed through a shared
+Mid room exactly like the Circuit map's fix: because every join here is a
+hard two-token synchronisation with no slack, losing one token to a ghost
+would otherwise strand its twin forever. The escape lets a stranded
+survivor bail out and re-fork rather than deadlocking that arm permanently.
+Routing through Mid rather than straight to Hub adds one hop to every
+escape, which also means one extra turn before a wandering ghost can reach
+the fork machinery and replicate — the same slowdown Circuit's Mid room
+gives its own escape routes, for the same reason.
+
+    function makeMandalaMap(): GameNet {
+      const net = makeNet();
+
+      // Hub and the two inner nodes from the level-1 fork
+      gamePlace(net, 'hub', 'Hub',         475, 460, false);
+      gamePlace(net, 'n1',  'Inner West',  280, 300);
+      gamePlace(net, 'n2',  'Inner East',  670, 300);
+
+      // Level-2 fork targets — the four petals
+      gamePlace(net, 'p_nw', 'NW Petal', 90,  120);
+      gamePlace(net, 'p_sw', 'SW Petal', 90,  480);
+      gamePlace(net, 'p_ne', 'NE Petal', 860, 120);
+      gamePlace(net, 'p_se', 'SE Petal', 860, 480);
+
+      // Corridor places — the travel step between a petal and its join.
+      // nw_c/ne_c hug their own petal's edge (x=90/860) rather than
+      // drifting toward centre, where they'd sit on top of the opposite
+      // fork output arc (t_fork_n1 → p_sw, t_fork_n2 → p_se) and make the
+      // two paths look like one.
+      gamePlace(net, 'nw_c', 'NW Corridor', 90,  320);
+      gamePlace(net, 'sw_c', 'SW Corridor', 230, 600);
+      gamePlace(net, 'ne_c', 'NE Corridor', 860, 320);
+      gamePlace(net, 'se_c', 'SE Corridor', 720, 600);
+
+      // Reconvergence collectors and the goal
+      // Pulled further out from centre (away from the escape-route lines
+      // t_swc_esc/t_sec_esc → hub, which they used to sit right on top of).
+      gamePlace(net, 'c_w',  'West Collector', 280, 520);
+      gamePlace(net, 'c_e',  'East Collector', 670, 520);
+      gamePlace(net, 'goal', 'Goal',           475, 660);
+      gamePlace(net, 'mid',  'Mid',            410, 540);  // shared escape hub
+
+      // Forks
+      addTransition(net, 't_fork0',   'Fork',   475, 360);  // hub → n1,n2
+      addTransition(net, 't_fork_n1', 'Fork W', 180, 220);  // n1 → petals
+      addTransition(net, 't_fork_n2', 'Fork E', 770, 220);  // n2 → petals
+
+      // Petal → corridor travel
+      addTransition(net, 't_nw_c', 'NW Corridor Door', 90,  260);
+      addTransition(net, 't_sw_c', 'SW Corridor Door', 170, 560);
+      addTransition(net, 't_ne_c', 'NE Corridor Door', 860, 260);
+      addTransition(net, 't_se_c', 'SE Corridor Door', 780, 560);
+
+      // Joins
+      addTransition(net, 't_join_w', 'West Sync',  250, 420);  // → c_w
+      addTransition(net, 't_join_e', 'East Sync',  700, 420);  // → c_e
+      addTransition(net, 't_join',   'Final Sync', 475, 600);  // → goal
+
+      // Restart
+      // Off the hub/goal centreline — on it, this arc passes exactly
+      // through goal, which sits between t_rst and hub on that line.
+      addTransition(net, 't_rst', 'Restart', 620, 740);         // goal → hub
+
+      // Escape routes from each corridor place into the shared Mid room
+      addTransition(net, 't_nwc_esc', 'NW Escape', 300, 380);
+      addTransition(net, 't_swc_esc', 'SW Escape', 300, 560);
+      addTransition(net, 't_nec_esc', 'NE Escape', 650, 380);
+      addTransition(net, 't_sec_esc', 'SE Escape', 650, 560);
+      addTransition(net, 't_mid_home', 'Mid->Home', 420, 470);
+
+      // Level-1 fork (1 → 2)
+      addArc(net, 'm1', 'hub',     't_fork0');
+      addArc(net, 'm2', 't_fork0', 'n1');
+      addArc(net, 'm3', 't_fork0', 'n2');
+      // Level-2 forks (2 → 4). p_ne is declared first on t_fork_n2 so the
+      // ghost spawn (below) lands there.
+      addArc(net, 'm4', 'n1',       't_fork_n1');
+      addArc(net, 'm5', 't_fork_n1', 'p_nw');
+      addArc(net, 'm6', 't_fork_n1', 'p_sw');
+      addArc(net, 'm7', 'n2',       't_fork_n2');
+      addArc(net, 'm8', 't_fork_n2', 'p_ne');
+      addArc(net, 'm9', 't_fork_n2', 'p_se');
+      // Petal → corridor
+      addArc(net, 'm10', 'p_nw',   't_nw_c');
+      addArc(net, 'm11', 't_nw_c', 'nw_c');
+      addArc(net, 'm12', 'p_sw',   't_sw_c');
+      addArc(net, 'm13', 't_sw_c', 'sw_c');
+      addArc(net, 'm14', 'p_ne',   't_ne_c');
+      addArc(net, 'm15', 't_ne_c', 'ne_c');
+      addArc(net, 'm16', 'p_se',   't_se_c');
+      addArc(net, 'm17', 't_se_c', 'se_c');
+      // Mid joins (4 → 2) — a true sync, both corridor arrivals required
+      addArc(net, 'm18', 'nw_c',     't_join_w');
+      addArc(net, 'm19', 'sw_c',     't_join_w');
+      addArc(net, 'm20', 't_join_w', 'c_w');
+      addArc(net, 'm21', 'ne_c',     't_join_e');
+      addArc(net, 'm22', 'se_c',     't_join_e');
+      addArc(net, 'm23', 't_join_e', 'c_e');
+      // Final join (2 → 1)
+      addArc(net, 'm24', 'c_w',    't_join');
+      addArc(net, 'm25', 'c_e',    't_join');
+      addArc(net, 'm26', 't_join', 'goal');
+      // Restart
+      addArc(net, 'm27', 'goal',  't_rst');
+      addArc(net, 'm28', 't_rst', 'hub');
+      // Escape routes — a stranded singleton in a corridor can bail home,
+      // via Mid rather than straight to Hub (see prose above for why).
+      addArc(net, 'm29', 'nw_c',       't_nwc_esc');
+      addArc(net, 'm30', 't_nwc_esc',  'mid');
+      addArc(net, 'm31', 'sw_c',       't_swc_esc');
+      addArc(net, 'm32', 't_swc_esc',  'mid');
+      addArc(net, 'm33', 'ne_c',       't_nec_esc');
+      addArc(net, 'm34', 't_nec_esc',  'mid');
+      addArc(net, 'm35', 'se_c',       't_sec_esc');
+      addArc(net, 'm36', 't_sec_esc',  'mid');
+      addArc(net, 'm37', 'mid',        't_mid_home');
+      addArc(net, 'm38', 't_mid_home', 'hub');
+
+      // Ghost spawns at t_fork_n2, emerging into the NE petal (p_ne is its
+      // first-declared output)
+      return { net, ghostSpawns: ['t_fork_n2'], playerStarts: ['hub'] };
+    }
+
+The full-traversal claim below fires one deterministic sequence — ignoring
+ghosts — from a single token in Hub through both fork levels, both corridors
+on every arm, both mid-joins, and the final join, and checks the whole
+cascade conserves down to exactly one token in Goal. This is the map's
+central pedagogical claim made checkable: split four ways, converge back to
+one, nothing lost along the way.
+
+    interface MandalaTrace {
+      atGoal: number;
+      totalElsewhere: number;
+    }
+
+    function _mandalaFullTraversal(): MandalaTrace {
+      const gn = makeMandalaMap();
+      let m = emptyMarking();
+      markingAddTokens(m, 'hub', 1);
+      const seq = [
+        't_fork0', 't_fork_n1', 't_fork_n2',
+        't_nw_c', 't_sw_c', 't_ne_c', 't_se_c',
+        't_join_w', 't_join_e', 't_join',
+      ];
+      for (const t of seq) m = fire(gn.net, m, t);
+      const atGoal = tokenCount(m, 'goal');
+      const total = [...m.values()].reduce((a, b) => a + b, 0);
+      return { atGoal, totalElsewhere: total - atGoal };
     }
 
 ##Grid Map
@@ -399,10 +626,34 @@ and the PNML IO module a large, structurally rich net to work with.
     transitionsForPlace(makeCircuitMap().net, 'ne').length === 2
 
 ~example
+    makeMandalaMap().net.places.size === 15
+    makeMandalaMap().net.transitions.size === 16
+    outputArcs(makeMandalaMap().net, 't_fork0').length === 2
+    inputArcs(makeMandalaMap().net, 't_join').length === 2
+    makeMandalaMap().playerStarts.includes('hub')
+
+~example
+    _mandalaFullTraversal().atGoal === 1
+    _mandalaFullTraversal().totalElsewhere === 0
+
+~example
     makeGridMap().net.places.size === 101
     makeGridMap().net.transitions.size === 179
     makeGridMap().playerStarts.includes('g0_0')
     makeGridMap().nodeRadius === 12
+
+The grid map is excluded below — it's a dense 10x10 test fixture, not a
+map meant to read clearly on screen, and its tight spacing (80px between
+grid neighbours) makes the clearance check meaningless there.
+
+~property no_node_sits_on_a_foreign_arc
+    fc.assert(fc.property(
+      fc.constantFrom(
+        makeClassicMap, makeSplitMap, makeDiamondMap,
+        makeCircuitMap, makeMandalaMap,
+      ),
+      (mapFn) => _nodesClearOfForeignArcs(mapFn()),
+    ))
 
 ---
 
@@ -435,6 +686,33 @@ and the PNML IO module a large, structurally rich net to work with.
     transitionsForPlace(makeCircuitMap().net, 'ne').length === 2
     transitionsForPlace(makeCircuitMap().net, 'se').length === 2
 
+##mandala: cascade doubles twice then reconverges in pairs
+    outputArcs(makeMandalaMap().net, 't_fork0').length === 2
+    outputArcs(makeMandalaMap().net, 't_fork_n1').length === 2
+    outputArcs(makeMandalaMap().net, 't_fork_n2').length === 2
+    inputArcs(makeMandalaMap().net, 't_join_w').length === 2
+    inputArcs(makeMandalaMap().net, 't_join_e').length === 2
+    inputArcs(makeMandalaMap().net, 't_join').length === 2
+
+##mandala: every corridor place has an escape route home
+    transitionsForPlace(makeMandalaMap().net, 'nw_c').length === 2
+    transitionsForPlace(makeMandalaMap().net, 'sw_c').length === 2
+    transitionsForPlace(makeMandalaMap().net, 'ne_c').length === 2
+    transitionsForPlace(makeMandalaMap().net, 'se_c').length === 2
+
+##mandala: ghost spawn is a valid transition
+    makeMandalaMap().net.transitions.has(makeMandalaMap().ghostSpawns[0])
+
+##mandala: full traversal conserves a single token from hub to goal
+    _mandalaFullTraversal().atGoal === 1
+    _mandalaFullTraversal().totalElsewhere === 0
+
+##mandala map arcs are bipartite
+    _arcsBipartite(makeMandalaMap())
+
+##mandala: no place sits on top of an unrelated arc
+    _nodesClearOfForeignArcs(makeMandalaMap())
+
 ##grid: 101 places, join room only reachable via coordinated two-token play
     makeGridMap().net.places.size === 101
     makeGridMap().net.transitions.size === 179
@@ -445,3 +723,4 @@ and the PNML IO module a large, structurally rich net to work with.
 
 #References
     #Petri Net
+    #Petri Marking
