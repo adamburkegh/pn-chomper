@@ -229,11 +229,33 @@ wrong rather than at bad luck.
     }
 
 ~run
+    const layoutMaps: Array<[string, () => GameNet]> = [
+      ['Classic', makeClassicMap], ['Split', makeSplitMap],
+      ['Diamond', makeDiamondMap], ['Circuit', makeCircuitMap],
+      ['Mandala', makeMandalaMap],
+    ];
+    for (const [name, make] of layoutMaps) {
+      const gn = make();
+      console.log(name, 'arcs', gn.net.arcs.length,
+        'crossings', countCrossings(gn.net),
+        'feedback', [...feedbackArcs(gn.net, gn.playerStarts)].join(','));
+      for (const c of arcCrossings(gn.net)) {
+        console.log('   ', c.a.id, c.a.source + '>' + c.a.target,
+          'x', c.b.id, c.b.source + '>' + c.b.target);
+      }
+    }
+
     const diamondRandom = runTrials(makeDiamondMap, randomPolicy, 200);
     console.log('Diamond, random policy, 200 seeds:', JSON.stringify(diamondRandom));
 
     const diamondGreedy = runTrials(makeDiamondMap, greedyPolicy, 200);
     console.log('Diamond, greedy policy, 200 seeds:', JSON.stringify(diamondGreedy));
+
+    const mandalaRandom = runTrials(makeMandalaMap, randomPolicy, 200, 1, 300);
+    console.log('Mandala (current), random policy, 200 seeds:', JSON.stringify(mandalaRandom));
+
+    const mandalaGreedy = runTrials(makeMandalaMap, greedyPolicy, 200, 1, 300);
+    console.log('Mandala (current), greedy policy, 200 seeds:', JSON.stringify(mandalaGreedy));
 
 ---
 
@@ -251,3 +273,4 @@ wrong rather than at bad luck.
     #Game Map
     #Petri Marking
     #Petri Net
+    #Render Layout

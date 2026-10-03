@@ -366,7 +366,18 @@ survivor bail out and re-fork rather than deadlocking that arm permanently.
 Routing through Mid rather than straight to Hub adds one hop to every
 escape, which also means one extra turn before a wandering ghost can reach
 the fork machinery and replicate — the same slowdown Circuit's Mid room
-gives its own escape routes, for the same reason.
+gives its own escape routes, for the same reason. This alone turned out
+not to be enough (a seeded simulation, sim/playtest.lob, put the win rate
+at around 1% even with a greedy player) — the rest of the net is compact
+enough that one extra hop barely delays the ghost reaching a fork at all.
+
+The fan handle is the stronger fix for the same problem: a long, one-way,
+branchless corridor (Den → H4 → H3 → H2 → H1 → Mid) that the ghost spawns
+at the far end of, five guaranteed hops from Hub via Mid rather than the
+one or two hops every node tried before it worked out to. Nothing else
+ever visits it — the handle places carry no dots, so winning never
+requires going there, and its only job is to cost the ghost real turns
+before it becomes dangerous at all.
 
     function makeMandalaMap(): GameNet {
       const net = makeNet();
@@ -400,6 +411,19 @@ gives its own escape routes, for the same reason.
       gamePlace(net, 'goal', 'Goal',           475, 660);
       gamePlace(net, 'mid',  'Mid',            410, 540);  // shared escape hub
 
+      // The fan handle — a one-way chain with no branches and no dots,
+      // existing purely to put real distance between the ghost's spawn
+      // and the fork machinery. Earlier spawn placements (a petal, then
+      // Mid's escape network) all turned out to be within a hop or two of
+      // Hub regardless of which node was chosen, because the rest of the
+      // net is compact; a dedicated corridor is the only way to actually
+      // buy turns rather than just relocate the same short distance.
+      gamePlace(net, 'den', 'Ghost Den', 50,  780, false);
+      gamePlace(net, 'h4',  'Handle 4',  50,  720, false);
+      gamePlace(net, 'h3',  'Handle 3',  50,  660, false);
+      gamePlace(net, 'h2',  'Handle 2',  50,  600, false);
+      gamePlace(net, 'h1',  'Handle 1',  300, 700, false);
+
       // Forks
       addTransition(net, 't_fork0',   'Fork',   475, 360);  // hub → n1,n2
       addTransition(net, 't_fork_n1', 'Fork W', 180, 220);  // n1 → petals
@@ -427,6 +451,13 @@ gives its own escape routes, for the same reason.
       addTransition(net, 't_nec_esc', 'NE Escape', 650, 380);
       addTransition(net, 't_sec_esc', 'SE Escape', 650, 560);
       addTransition(net, 't_mid_home', 'Mid->Home', 420, 470);
+
+      // Fan handle — one-way, Den to Hub
+      addTransition(net, 't_den_h4', 'Den->H4', 50,  750);
+      addTransition(net, 't_h4_h3',  'H4->H3',  50,  690);
+      addTransition(net, 't_h3_h2',  'H3->H2',  50,  630);
+      addTransition(net, 't_h2_h1',  'H2->H1',  150, 650);
+      addTransition(net, 't_h1_mid', 'H1->Mid', 370, 650);
 
       // Level-1 fork (1 → 2)
       addArc(net, 'm1', 'hub',     't_fork0');
@@ -475,10 +506,24 @@ gives its own escape routes, for the same reason.
       addArc(net, 'm36', 't_sec_esc',  'mid');
       addArc(net, 'm37', 'mid',        't_mid_home');
       addArc(net, 'm38', 't_mid_home', 'hub');
+      // Fan handle — one-way, Den to Mid (which already connects to Hub
+      // via t_mid_home, so the last leg reuses a route already proven
+      // clear rather than threading a new line through the fork cluster).
+      addArc(net, 'm39', 'den', 't_den_h4');
+      addArc(net, 'm40', 't_den_h4', 'h4');
+      addArc(net, 'm41', 'h4',  't_h4_h3');
+      addArc(net, 'm42', 't_h4_h3', 'h3');
+      addArc(net, 'm43', 'h3',  't_h3_h2');
+      addArc(net, 'm44', 't_h3_h2', 'h2');
+      addArc(net, 'm45', 'h2',  't_h2_h1');
+      addArc(net, 'm46', 't_h2_h1', 'h1');
+      addArc(net, 'm47', 'h1',  't_h1_mid');
+      addArc(net, 'm48', 't_h1_mid', 'mid');
 
-      // Ghost spawns at t_fork_n2, emerging into the NE petal (p_ne is its
-      // first-declared output)
-      return { net, ghostSpawns: ['t_fork_n2'], playerStarts: ['hub'] };
+      // Ghost spawns in the Den, at the far end of the fan handle — five
+      // guaranteed hops from Hub (via Mid), not one or two like every
+      // spawn tried before it.
+      return { net, ghostSpawns: ['t_den_h4'], playerStarts: ['hub'] };
     }
 
 The full-traversal claim below fires one deterministic sequence — ignoring
@@ -626,8 +671,8 @@ and the PNML IO module a large, structurally rich net to work with.
     transitionsForPlace(makeCircuitMap().net, 'ne').length === 2
 
 ~example
-    makeMandalaMap().net.places.size === 15
-    makeMandalaMap().net.transitions.size === 16
+    makeMandalaMap().net.places.size === 20
+    makeMandalaMap().net.transitions.size === 21
     outputArcs(makeMandalaMap().net, 't_fork0').length === 2
     inputArcs(makeMandalaMap().net, 't_join').length === 2
     makeMandalaMap().playerStarts.includes('hub')
