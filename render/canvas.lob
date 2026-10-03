@@ -13,7 +13,10 @@ proper maze aesthetic.
 
 Place and transition names are for whoever is building or debugging a map,
 not for the player, who reads the board by its shapes and colours — so
-labels are off unless the renderer's showLabels is switched on.
+labels are off unless the renderer's showLabels is switched on. The main
+module (game/main.lob) switches them on for a map loaded from outside, whose
+names carry the meaning of its domain, and lets the L key or the menu toggle
+them.
 
     interface Renderer {
       canvas: HTMLCanvasElement;
@@ -201,8 +204,10 @@ cannot drift apart.
 
 When two corridors cross, the one drawn later is redrawn across the
 crossing with a background-coloured halo, so the earlier one visibly
-passes beneath it instead of merging into it. Only the stretch around the
-crossing is redrawn, and not at all if the crossing is too close to either
+passes beneath it instead of merging into it. Only solid corridors are
+bridged: a crossing with a dashed return or lower-tier arc is left alone,
+since that arc is already drawn as a different plane. Only the stretch around
+the crossing is redrawn, and not at all if the crossing is too close to either
 end of the arc for the halo to fit between the corridor's clipped ends.
 
 A bridge is drawn opaque, with its colours pre-mixed toward the background
@@ -442,9 +447,17 @@ needed on the transition record.
 
 ##Full Scene
 
-The feedback arcs and crossings of a map never change while it is being
-played, so they are worked out once per map and remembered rather than
-recomputed every animation frame.
+The return arcs, the lower-tier arcs and the crossings of a map never change
+while it is being played, so they are worked out once per map and remembered
+rather than recomputed every animation frame. Crossings are counted without
+the lower-tier arcs, since those are never bridged.
+
+A lower-tier arc bows away from the middle of the board, by a quarter of its
+length up to a limit, and not at all if it is short, so a row of short hops
+stays a straight line. Both halves of a route through a lower-tier doorway
+pick which side to bow on from the whole route, from the place before the
+doorway to the place after it, so the two halves bend the same way and make
+one smooth curve instead of an S.
 
     const _feedbackCache = new WeakMap<GameNet, Set<string>>();
     const _crossingCache = new WeakMap<GameNet, Crossing[]>();

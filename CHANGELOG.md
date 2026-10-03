@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.8.0 - 2026-10-03
+
+- **Mandala map**: a new built-in map that teaches splitting as a cascade.
+  One token forks into two, each of those forks again into four, and the four
+  reconverge through two synchronising joins and a final join. Every corridor
+  has an escape route home through a central Mid room, and the ghost starts at
+  the far end of a long one-way tail so it takes five turns to reach the fork
+  machinery.
+- **Deadlock costs a life**: a marking where tokens remain but nothing can fire
+  now loses a life and resets, with a "Deadlock ..." message, instead of
+  leaving the game stuck. A collision shows "Life lost ...", and the spot
+  flashes when a ghost catches a chomper. This also makes Diamond winnable.
+- **Corridors are easier to read**:
+  - Return arcs, such as restart, are dashed rather than drawn as corridors,
+    including the arc into the restart doorway.
+  - Corridors that cross get a bridge, so one visibly passes over the other.
+  - Hovering a doorway highlights its corridors in gold and dims the rest.
+  - Corridors on every doorway you can fire now are tinted a muted gold, so
+    touch screens get the same cue without hover.
+  - A new, brighter palette: corridor edges, place outlines, doorway borders
+    and labels all sit at roughly 4:1 contrast against the background, where
+    the old near-black corridors were barely visible. The menu, hint and
+    version text are lighter too.
+- **A second plane for escapes**: Circuit and Mandala draw their escape
+  rooms, restart and the ghost tail as dashed curves that sweep round the
+  outside, so the solid corridors no longer cross. Mandala is also redrawn as
+  two diamonds with a centre line, which makes it much easier to follow.
+- **Place and doorway names hidden on built-in maps**: they are for debugging
+  a map, not for playing it. Press L, or use the menu, to show them. Maps
+  loaded from a PNML file or `?map=` show them by default, since an imported
+  net's names carry its meaning.
+- **Startup hint moved to the top edge** so it no longer covers the middle of
+  the map, and now begins with a capital letter.
+
+### Development
+
+- New seeded playtest simulation (`sim/playtest.lob`) with random and greedy
+  player policies, run over many seeds to measure how winnable a map is. It
+  also reports how tangled each map's drawing is.
+- New `render/layout.lob` module counts arc crossings, and claims now hold
+  Circuit and Mandala at zero crossings among solid corridors.
+- `petri/net.lob` gains structural detection of feedback and return arcs.
+
 ## 0.7.1 - Multi-token start support
 
 - **Multiple chomper start places**: maps can now designate more than one

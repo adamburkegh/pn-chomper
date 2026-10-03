@@ -228,6 +228,18 @@ wrong rather than at bad luck.
       return isWon(engine.state);
     }
 
+##Layout report
+
+The report below also prints, for every built-in map, how tangled its drawing
+is: all the arcs that cross, and then the same count with a map's lower-tier
+arcs (see #Game Map's underpass) left out. A lower-tier arc is drawn as a
+dashed curve on its own plane, so only the second number is what a player has
+to untangle; the straight-line crossings listed under Circuit and Mandala are
+the ones the curves resolve. Any node sitting too close to a solid arc is
+listed too, by name, since the clearance claim in #Game Map only says that
+something is wrong. The claims at the end of this module hold the solid count
+at zero for Circuit and Mandala.
+
 ~run
     const layoutMaps: Array<[string, () => GameNet]> = [
       ['Classic', makeClassicMap], ['Split', makeSplitMap],

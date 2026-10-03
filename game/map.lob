@@ -9,7 +9,9 @@ Several built-in maps are supplied. The Classic map is a figure-eight. The
 Split map demonstrates token splitting with a Y-junction and long restart
 corridors. Diamond and Circuit extend fork-join into a proper maze. Mandala
 scales splitting further still, into a two-level 1→2→4 cascade that
-reconverges in pairs.
+reconverges in pairs. Circuit and Mandala also have an escape layer that
+cannot be drawn without crossing their forward corridors, so each names it
+(see underpass below) and is drawn with it as a second plane.
 
     interface GamePlace extends Place {
       hasDot: boolean;
@@ -27,9 +29,13 @@ reconverges in pairs.
 Some maps are not planar: an escape room that every corridor drains into
 cannot be drawn without its arcs crossing the forward maze. Rather than
 tangle the picture, such a map can name the transitions of that escape
-layer. Every arc touching one of them is drawn as a dashed curve, a plane
+layer, which also covers a long restart that has to come back round the
+board. Every arc touching one of them is drawn as a dashed curve, a plane
 beneath the solid corridors, and a crossing with it is not drawn as a
-junction at all.
+junction at all. This is a statement about the drawing only: the net, and
+so the play, is the same whether or not a transition is named. What the
+claim layer checks is that the solid corridors alone do not cross (see the
+playtest module, sim/playtest.lob).
 
     function underpassArcIds(gn: GameNet): Set<string> {
       const marked = new Set(gn.underpass ?? []);
@@ -204,7 +210,11 @@ though that arc terminates there — exactly the ambiguity Mandala's corridor
 places had before being moved off the fork-to-petal diagonal they used to
 sit on. This check catches that class of layout bug for any map: for every
 node, and every arc it's not an endpoint of, the node must stay clear of
-the arc's line segment by some minimum pixel distance.
+the arc's line segment by some minimum pixel distance. Arcs on a map's lower
+tier are skipped, because they are drawn as curves and a straight line
+between their ends says nothing about what they pass near. A violation is
+reported as a sentence naming the node and the arc, so a failing claim says
+what to move instead of only that something is wrong.
 
     function _distToSegment(
       px: number, py: number,
@@ -318,6 +328,14 @@ transition leading to a central Mid room, which routes back to Depot.
 A surviving token can loop home, re-fork, and try again. This also keeps
 the ghost moving rather than stuck waiting at an arm-end.
 
+Mid is reached from the arm-ends across the middle of the ring, and the
+long restart has to come back from East to Depot, so both would cross the
+forward arms if drawn like them. They are the map's underpass: the two
+escapes, Mid's way home and Restart are drawn as dashed curves sweeping
+round the outside of the solid ring, which is left as a plain loop with no
+crossings. Restart sits above the ring, so its two legs bow out either side
+of it.
+
     function makeCircuitMap(): GameNet {
       const net = makeNet();
 
@@ -408,6 +426,23 @@ ever visits it — the handle places carry no dots, so winning never
 requires going there, and its only job is to cost the ghost real turns
 before it becomes dangerous at all.
 
+The drawing follows the structure. Each side's fork opens into a diamond —
+fork, two parallel rails, a join — so the four petals sit two to a side and
+no rail crosses another: the outer rails are NW and NE, the inner ones SW
+and SE. The two diamonds meet in the final join, and Hub, Fork, Restart and
+Final Sync sit on the centre line between them. Goal sits left of that
+line, at the height of Restart, and Mid's way home mirrors it on the right,
+so the two returns balance either side of Restart.
+
+Everything that is not part of the forward cascade is drawn on the lower
+tier (see underpass above): the four escapes, Mid's way home, Restart and
+the whole fan handle. Mid sits under Final Sync on the centre line, the
+handle runs along the bottom edge and climbs straight up into it, and the
+outer escapes loop down the outside of the diamonds. Mid touches both rails
+of both diamonds, which no drawing of the solid cascade can do without
+crossing, which is why it is on its own plane. The solid corridors do not
+cross anywhere.
+
     function makeMandalaMap(): GameNet {
       const net = makeNet();
 
@@ -471,7 +506,8 @@ before it becomes dangerous at all.
       addTransition(net, 't_join_e', 'East Sync',  750, 440);  // → c_e
       addTransition(net, 't_join',   'Final Sync', 475, 540);  // → goal
 
-      // Restart — on the centre line between goal and hub
+      // Restart — on the centre line, at the height of Goal and Mid's way
+      // home, which sit either side of it
       addTransition(net, 't_rst', 'Restart', 475, 375);         // goal → hub
 
       // Escape routes from each corridor place into the shared Mid room
@@ -492,8 +528,7 @@ before it becomes dangerous at all.
       addArc(net, 'm1', 'hub',     't_fork0');
       addArc(net, 'm2', 't_fork0', 'n1');
       addArc(net, 'm3', 't_fork0', 'n2');
-      // Level-2 forks (2 → 4). p_ne is declared first on t_fork_n2 so the
-      // ghost spawn (below) lands there.
+      // Level-2 forks (2 → 4)
       addArc(net, 'm4', 'n1',       't_fork_n1');
       addArc(net, 'm5', 't_fork_n1', 'p_nw');
       addArc(net, 'm6', 't_fork_n1', 'p_sw');
@@ -705,6 +740,8 @@ and the PNML IO module a large, structurally rich net to work with.
     outputArcs(makeCircuitMap().net, 't_fork').length === 2
     inputArcs(makeCircuitMap().net, 't_sync').length === 2
     transitionsForPlace(makeCircuitMap().net, 'ne').length === 2
+    underpassArcIds(makeCircuitMap()).size === 8
+    underpassArcIds(makeClassicMap()).size === 0
 
 ~example
     makeMandalaMap().net.places.size === 20
@@ -712,6 +749,7 @@ and the PNML IO module a large, structurally rich net to work with.
     outputArcs(makeMandalaMap().net, 't_fork0').length === 2
     inputArcs(makeMandalaMap().net, 't_join').length === 2
     makeMandalaMap().playerStarts.includes('hub')
+    underpassArcIds(makeMandalaMap()).size === 22
 
 ~example
     _mandalaFullTraversal().atGoal === 1
