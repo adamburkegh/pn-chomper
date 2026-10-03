@@ -101,11 +101,11 @@
     }
     #startup-hint {
       position: fixed;
-      top: 50%; left: 0; right: 0;
-      transform: translateY(60px);
+      top: 10px; left: 0; right: 0;
+      padding: 0 56px;
       text-align: center;
-      color: #888;
-      font: 20px monospace;
+      color: #aaa;
+      font: 16px monospace;
       pointer-events: none;
       transition: opacity 0.5s;
     }
@@ -262,6 +262,12 @@
   const _m0 = emptyMarking();
   markingAddTokens(_m0, "p1", 1);
   const _m1 = fire(_testNet, _m0, "t1");
+  function underpassArcIds(gn) {
+    const marked = new Set(gn.underpass ?? []);
+    return new Set(
+      gn.net.arcs.filter((a) => marked.has(a.source) || marked.has(a.target)).map((a) => a.id)
+    );
+  }
   function gamePlace(net, id, label, x, y, hasDot = true) {
     const p = addPlace(net, id, label, x, y);
     p.hasDot = hasDot;
@@ -389,7 +395,7 @@
     addTransition(net, "t_sw_ss", "SW\u2192S", 405, 680);
     addTransition(net, "t_ss_se", "S\u2192SE", 615, 680);
     addTransition(net, "t_sync", "Sync", 800, 440);
-    addTransition(net, "t_rst", "Restart", 270, 65);
+    addTransition(net, "t_rst", "Restart", 510, 50);
     addTransition(net, "t_ne_mid", "NE\u2192Mid", 620, 330);
     addTransition(net, "t_se_mid", "SE\u2192Mid", 620, 550);
     addTransition(net, "t_mid_dep", "Mid\u2192Home", 285, 380);
@@ -415,51 +421,56 @@
     addArc(net, "c20", "t_se_mid", "mid");
     addArc(net, "c21", "mid", "t_mid_dep");
     addArc(net, "c22", "t_mid_dep", "depot");
-    return { net, ghostSpawns: ["t_sync"], playerStarts: ["depot"] };
+    return {
+      net,
+      ghostSpawns: ["t_sync"],
+      playerStarts: ["depot"],
+      underpass: ["t_ne_mid", "t_se_mid", "t_mid_dep", "t_rst"]
+    };
   }
   function makeMandalaMap() {
     const net = makeNet();
-    gamePlace(net, "hub", "Hub", 475, 460, false);
-    gamePlace(net, "n1", "Inner West", 280, 300);
-    gamePlace(net, "n2", "Inner East", 670, 300);
-    gamePlace(net, "p_nw", "NW Petal", 90, 120);
-    gamePlace(net, "p_sw", "SW Petal", 90, 480);
-    gamePlace(net, "p_ne", "NE Petal", 860, 120);
-    gamePlace(net, "p_se", "SE Petal", 860, 480);
-    gamePlace(net, "nw_c", "NW Corridor", 90, 320);
-    gamePlace(net, "sw_c", "SW Corridor", 230, 600);
-    gamePlace(net, "ne_c", "NE Corridor", 860, 320);
-    gamePlace(net, "se_c", "SE Corridor", 720, 600);
-    gamePlace(net, "c_w", "West Collector", 280, 520);
-    gamePlace(net, "c_e", "East Collector", 670, 520);
-    gamePlace(net, "goal", "Goal", 475, 660);
-    gamePlace(net, "mid", "Mid", 410, 540);
-    gamePlace(net, "den", "Ghost Den", 50, 780, false);
-    gamePlace(net, "h4", "Handle 4", 50, 720, false);
-    gamePlace(net, "h3", "Handle 3", 50, 660, false);
-    gamePlace(net, "h2", "Handle 2", 50, 600, false);
-    gamePlace(net, "h1", "Handle 1", 300, 700, false);
-    addTransition(net, "t_fork0", "Fork", 475, 360);
-    addTransition(net, "t_fork_n1", "Fork W", 180, 220);
-    addTransition(net, "t_fork_n2", "Fork E", 770, 220);
-    addTransition(net, "t_nw_c", "NW Corridor Door", 90, 260);
-    addTransition(net, "t_sw_c", "SW Corridor Door", 170, 560);
-    addTransition(net, "t_ne_c", "NE Corridor Door", 860, 260);
-    addTransition(net, "t_se_c", "SE Corridor Door", 780, 560);
-    addTransition(net, "t_join_w", "West Sync", 250, 420);
-    addTransition(net, "t_join_e", "East Sync", 700, 420);
-    addTransition(net, "t_join", "Final Sync", 475, 600);
-    addTransition(net, "t_rst", "Restart", 620, 740);
-    addTransition(net, "t_nwc_esc", "NW Escape", 300, 380);
-    addTransition(net, "t_swc_esc", "SW Escape", 300, 560);
-    addTransition(net, "t_nec_esc", "NE Escape", 650, 380);
-    addTransition(net, "t_sec_esc", "SE Escape", 650, 560);
-    addTransition(net, "t_mid_home", "Mid->Home", 420, 470);
-    addTransition(net, "t_den_h4", "Den->H4", 50, 750);
-    addTransition(net, "t_h4_h3", "H4->H3", 50, 690);
-    addTransition(net, "t_h3_h2", "H3->H2", 50, 630);
-    addTransition(net, "t_h2_h1", "H2->H1", 150, 650);
-    addTransition(net, "t_h1_mid", "H1->Mid", 370, 650);
+    gamePlace(net, "hub", "Hub", 475, 290, false);
+    gamePlace(net, "n1", "Inner West", 200, 130);
+    gamePlace(net, "n2", "Inner East", 750, 130);
+    gamePlace(net, "p_nw", "NW Petal", 110, 250);
+    gamePlace(net, "p_sw", "SW Petal", 290, 250);
+    gamePlace(net, "p_se", "SE Petal", 660, 250);
+    gamePlace(net, "p_ne", "NE Petal", 840, 250);
+    gamePlace(net, "nw_c", "NW Corridor", 110, 370);
+    gamePlace(net, "sw_c", "SW Corridor", 290, 370);
+    gamePlace(net, "se_c", "SE Corridor", 660, 370);
+    gamePlace(net, "ne_c", "NE Corridor", 840, 370);
+    gamePlace(net, "c_w", "West Collector", 200, 500);
+    gamePlace(net, "c_e", "East Collector", 750, 500);
+    gamePlace(net, "goal", "Goal", 405, 375);
+    gamePlace(net, "mid", "Mid", 475, 640);
+    gamePlace(net, "den", "Ghost Den", 50, 740, false);
+    gamePlace(net, "h4", "Handle 4", 156, 740, false);
+    gamePlace(net, "h3", "Handle 3", 262, 740, false);
+    gamePlace(net, "h2", "Handle 2", 368, 740, false);
+    gamePlace(net, "h1", "Handle 1", 475, 740, false);
+    addTransition(net, "t_fork0", "Fork", 475, 210);
+    addTransition(net, "t_fork_n1", "Fork W", 200, 190);
+    addTransition(net, "t_fork_n2", "Fork E", 750, 190);
+    addTransition(net, "t_nw_c", "NW Corridor Door", 110, 310);
+    addTransition(net, "t_sw_c", "SW Corridor Door", 290, 310);
+    addTransition(net, "t_se_c", "SE Corridor Door", 660, 310);
+    addTransition(net, "t_ne_c", "NE Corridor Door", 840, 310);
+    addTransition(net, "t_join_w", "West Sync", 200, 440);
+    addTransition(net, "t_join_e", "East Sync", 750, 440);
+    addTransition(net, "t_join", "Final Sync", 475, 540);
+    addTransition(net, "t_rst", "Restart", 475, 375);
+    addTransition(net, "t_nwc_esc", "NW Escape", 150, 620);
+    addTransition(net, "t_swc_esc", "SW Escape", 330, 480);
+    addTransition(net, "t_nec_esc", "NE Escape", 800, 620);
+    addTransition(net, "t_sec_esc", "SE Escape", 620, 480);
+    addTransition(net, "t_mid_home", "Mid->Home", 545, 375);
+    addTransition(net, "t_den_h4", "Den->H4", 103, 740);
+    addTransition(net, "t_h4_h3", "H4->H3", 209, 740);
+    addTransition(net, "t_h3_h2", "H3->H2", 315, 740);
+    addTransition(net, "t_h2_h1", "H2->H1", 421, 740);
+    addTransition(net, "t_h1_mid", "H1->Mid", 475, 690);
     addArc(net, "m1", "hub", "t_fork0");
     addArc(net, "m2", "t_fork0", "n1");
     addArc(net, "m3", "t_fork0", "n2");
@@ -508,7 +519,24 @@
     addArc(net, "m46", "t_h2_h1", "h1");
     addArc(net, "m47", "h1", "t_h1_mid");
     addArc(net, "m48", "t_h1_mid", "mid");
-    return { net, ghostSpawns: ["t_den_h4"], playerStarts: ["hub"] };
+    return {
+      net,
+      ghostSpawns: ["t_den_h4"],
+      playerStarts: ["hub"],
+      underpass: [
+        "t_nwc_esc",
+        "t_swc_esc",
+        "t_nec_esc",
+        "t_sec_esc",
+        "t_mid_home",
+        "t_rst",
+        "t_den_h4",
+        "t_h4_h3",
+        "t_h3_h2",
+        "t_h2_h1",
+        "t_h1_mid"
+      ]
+    };
   }
   function spawnChompers(gn) {
     const chompers = emptyMarking();
@@ -650,12 +678,13 @@
     if (t <= eps || t >= 1 - eps || u <= eps || u >= 1 - eps) return null;
     return { x: ax + t * rx, y: ay + t * ry };
   }
-  function arcCrossings(net) {
+  function arcCrossings(net, skip) {
     const pos = (id) => net.places.get(id) ?? net.transitions.get(id);
     const found = [];
     for (let i = 0; i < net.arcs.length; i++) {
       for (let j = i + 1; j < net.arcs.length; j++) {
         const a = net.arcs[i], b = net.arcs[j];
+        if (skip && (skip.has(a.id) || skip.has(b.id))) continue;
         if (a.source === b.source || a.source === b.target || a.target === b.source || a.target === b.target) continue;
         const a1 = pos(a.source), a2 = pos(a.target);
         const b1 = pos(b.source), b2 = pos(b.target);
@@ -669,7 +698,7 @@
   function makeRenderer(canvas) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Cannot get 2D context");
-    return { canvas, ctx };
+    return { canvas, ctx, showLabels: false };
   }
   function clearCanvas(r) {
     r.ctx.fillStyle = "#111";
@@ -721,20 +750,25 @@
     const col = coloursFor(style);
     ctx.save();
     ctx.globalAlpha = style.alpha;
-    if (style.look === "return") {
+    if (style.look === "return" || style.look === "under") {
+      const bow = style.bow ?? 0;
+      const cx = (sx + ex) / 2 + px * bow;
+      const cy = (sy + ey) / 2 + py * bow;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
+      ctx.quadraticCurveTo(cx, cy, ex, ey);
       ctx.setLineDash([8, 7]);
       ctx.strokeStyle = col.dashed;
       ctx.lineWidth = 3;
       ctx.stroke();
       ctx.setLineDash([]);
+      const ta = bow === 0 ? angle : Math.atan2(ey - cy, ex - cx);
+      const tx = -Math.sin(ta), ty = Math.cos(ta);
       const rah = 11;
       ctx.beginPath();
-      ctx.moveTo(ex + Math.cos(angle) * rah, ey + Math.sin(angle) * rah);
-      ctx.lineTo(ex + px * 5, ey + py * 5);
-      ctx.lineTo(ex - px * 5, ey - py * 5);
+      ctx.moveTo(ex + Math.cos(ta) * rah, ey + Math.sin(ta) * rah);
+      ctx.lineTo(ex + tx * 5, ey + ty * 5);
+      ctx.lineTo(ex - tx * 5, ey - ty * 5);
       ctx.closePath();
       ctx.fillStyle = col.arrow;
       ctx.fill();
@@ -776,7 +810,7 @@
   }
   function drawBridge(ctx, x1, y1, x2, y2, cx, cy, style) {
     const len = Math.hypot(x2 - x1, y2 - y1);
-    if (len < 20 || style.look === "return") return;
+    if (len < 20 || style.look !== "forward") return;
     const margin = Math.min(28, Math.max(8, len * 0.3));
     const cw = Math.min(16, Math.max(4, len * 0.18));
     const dStart = Math.hypot(cx - x1, cy - y1);
@@ -805,7 +839,7 @@
     ctx.stroke();
     ctx.restore();
   }
-  function drawPlace(ctx, p, hasDot, chompers, ghosts, radius = 24) {
+  function drawPlace(ctx, p, hasDot, chompers, ghosts, radius = 24, showLabel = false) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fillStyle = "#1a1a1a";
@@ -836,6 +870,7 @@
         ctx.textBaseline = "alphabetic";
       }
     }
+    if (!showLabel) return;
     ctx.fillStyle = "#a8a8b0";
     ctx.font = "10px monospace";
     ctx.textAlign = "center";
@@ -882,7 +917,7 @@
     if (inputArcs(net, id).length > 1) return "join";
     return "regular";
   }
-  function drawTransition(ctx, t, enabled, kind) {
+  function drawTransition(ctx, t, enabled, kind, showLabel = false) {
     const w = 18, h = 40;
     const palette = {
       fork: { bg: enabled ? "#552200" : "#1e0d00", border: enabled ? "#ff8800" : "#cc5500" },
@@ -914,6 +949,7 @@
       ctx.lineTo(t.x + 3, t.y + 6);
       ctx.stroke();
     }
+    if (!showLabel) return;
     ctx.fillStyle = "#a8a8b0";
     ctx.font = "9px monospace";
     ctx.textAlign = "center";
@@ -921,6 +957,7 @@
   }
   const _feedbackCache = /* @__PURE__ */ new WeakMap();
   const _crossingCache = /* @__PURE__ */ new WeakMap();
+  const _underpassCache = /* @__PURE__ */ new WeakMap();
   function cachedFeedback(gn) {
     let fb = _feedbackCache.get(gn);
     if (!fb) {
@@ -929,11 +966,25 @@
     }
     return fb;
   }
-  function cachedCrossings(net) {
-    let cr = _crossingCache.get(net);
+  function cachedUnderpass(gn) {
+    let u = _underpassCache.get(gn);
+    if (!u) {
+      const nodes = [...gn.net.places.values(), ...gn.net.transitions.values()];
+      const n = Math.max(1, nodes.length);
+      u = {
+        ids: underpassArcIds(gn),
+        cx: nodes.reduce((s, p) => s + p.x, 0) / n,
+        cy: nodes.reduce((s, p) => s + p.y, 0) / n
+      };
+      _underpassCache.set(gn, u);
+    }
+    return u;
+  }
+  function cachedCrossings(gn) {
+    let cr = _crossingCache.get(gn);
     if (!cr) {
-      cr = arcCrossings(net);
-      _crossingCache.set(net, cr);
+      cr = arcCrossings(gn.net, cachedUnderpass(gn).ids);
+      _crossingCache.set(gn, cr);
     }
     return cr;
   }
@@ -947,26 +998,50 @@
       engine.phase === "player" ? playerEnabledTransitions(engine) : []
     );
     const feedback = cachedFeedback(state.gn);
+    const under = cachedUnderpass(state.gn);
+    const posOf = (id) => net.places.get(id) ?? net.transitions.get(id);
+    const bowOf = (arc) => {
+      const a = posOf(arc.source), b = posOf(arc.target);
+      if (!a || !b) return 0;
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 100) return 0;
+      const door = net.transitions.has(arc.source) ? arc.source : arc.target;
+      const ins = inputArcs(net, door), outs = outputArcs(net, door);
+      const from = ins.length === 1 ? posOf(ins[0].source) : a;
+      const to = outs.length === 1 ? posOf(outs[0].target) : b;
+      if (!from || !to) return 0;
+      const cl = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+      const qx = -(to.y - from.y) / cl, qy = (to.x - from.x) / cl;
+      const side = ((from.x + to.x) / 2 - under.cx) * qx + ((from.y + to.y) / 2 - under.cy) * qy >= 0 ? 1 : -1;
+      return side * Math.min(110, len * 0.25);
+    };
     const styleOf = (arc) => {
       const adjacent = focusId !== null && (arc.source === focusId || arc.target === focusId);
+      const lower = under.ids.has(arc.id);
       return {
-        look: feedback.has(arc.id) ? "return" : "forward",
+        look: lower ? "under" : feedback.has(arc.id) ? "return" : "forward",
         alpha: focusId === null || adjacent ? 1 : DIM_ALPHA,
         accent: adjacent,
-        muted: enabledIds.has(arc.source) || enabledIds.has(arc.target)
+        muted: enabledIds.has(arc.source) || enabledIds.has(arc.target),
+        ...lower ? { bow: bowOf(arc) } : {}
       };
     };
-    const posOf = (id) => net.places.get(id) ?? net.transitions.get(id);
     for (const arc of net.arcs) {
       const src = posOf(arc.source), tgt = posOf(arc.target);
       if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y, styleOf(arc));
     }
-    for (const c of cachedCrossings(net)) {
+    for (const c of cachedCrossings(state.gn)) {
       const a = posOf(c.b.source), b = posOf(c.b.target);
       if (a && b) drawBridge(ctx, a.x, a.y, b.x, b.y, c.x, c.y, styleOf(c.b));
     }
     for (const t of net.transitions.values()) {
-      drawTransition(ctx, t, enabledIds.has(t.id), transitionKind(net, t.id));
+      drawTransition(
+        ctx,
+        t,
+        enabledIds.has(t.id),
+        transitionKind(net, t.id),
+        r.showLabels
+      );
     }
     for (const p of net.places.values()) {
       const gp = p;
@@ -976,7 +1051,8 @@
         gp.hasDot && state.dots.has(p.id),
         tokenCount(state.chompers, p.id),
         tokenCount(state.ghosts, p.id),
-        nodeRadius
+        nodeRadius,
+        r.showLabels
       );
     }
     if (focusId !== null) {
@@ -1239,6 +1315,7 @@
       mapIdx = i;
       gn = mapList[i].fn();
       eng = makeEngine(gn);
+      rnd.showLabels = mapList[i].tag === "loaded";
       showMapName(mapList[i].name);
     }, buildMenuItems = function() {
       menuItems = [
@@ -1246,6 +1323,14 @@
         { kind: "action", label: "Restart", run: () => {
           eng = makeEngine(gn);
         } },
+        {
+          kind: "action",
+          label: rnd.showLabels ? "Hide labels" : "Show labels",
+          tag: "debug",
+          run: () => {
+            rnd.showLabels = !rnd.showLabels;
+          }
+        },
         { kind: "action", label: "Export PNML", run: () => downloadPNML(gn, mapList[mapIdx].name) },
         { kind: "action", label: "Load PNML file\u2026", run: () => {
           hideMenu();
@@ -1414,6 +1499,9 @@
       }
       if (e.key === "r" || e.key === "R") {
         eng = makeEngine(gn);
+      }
+      if (e.key === "l" || e.key === "L") {
+        rnd.showLabels = !rnd.showLabels;
       }
     });
     window.addEventListener("resize", () => {

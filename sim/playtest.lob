@@ -238,7 +238,9 @@ wrong rather than at bad luck.
       const gn = make();
       console.log(name, 'arcs', gn.net.arcs.length,
         'crossings', countCrossings(gn.net),
+        'solid', countCrossings(gn.net, underpassArcIds(gn)),
         'feedback', [...feedbackArcs(gn.net, gn.playerStarts)].join(','));
+      for (const v of _clearanceViolations(gn)) console.log('    clearance:', v);
       for (const c of arcCrossings(gn.net)) {
         console.log('   ', c.a.id, c.a.source + '>' + c.a.target,
           'x', c.b.id, c.b.source + '>' + c.b.target);
@@ -264,6 +266,12 @@ wrong rather than at bad luck.
 ##diamond is winnable — a fixed script had wrongly reported otherwise
     runTrials(makeDiamondMap, randomPolicy, 200).won >= 20
     runTrials(makeDiamondMap, greedyPolicy, 200).won >= 100
+
+##circuit's solid corridors do not cross: only the lower tier does
+    countCrossings(makeCircuitMap().net, underpassArcIds(makeCircuitMap())) === 0
+
+##mandala's solid corridors do not cross: only the lower tier does
+    countCrossings(makeMandalaMap().net, underpassArcIds(makeMandalaMap())) === 0
 
 ##mandala win sequence satisfies isWon with no ghost interference
     _mandalaMovesWinWithoutGhost()

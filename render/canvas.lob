@@ -11,15 +11,20 @@ Transitions are rectangles (doorways); enabled ones glow yellow. Arcs are
 drawn as wide corridors with a directional highlight, giving the net a
 proper maze aesthetic.
 
+Place and transition names are for whoever is building or debugging a map,
+not for the player, who reads the board by its shapes and colours — so
+labels are off unless the renderer's showLabels is switched on.
+
     interface Renderer {
       canvas: HTMLCanvasElement;
       ctx: CanvasRenderingContext2D;
+      showLabels: boolean;
     }
 
     function makeRenderer(canvas: HTMLCanvasElement): Renderer {
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Cannot get 2D context');
-      return { canvas, ctx };
+      return { canvas, ctx, showLabels: false };
     }
 
     function clearCanvas(r: Renderer): void {
@@ -54,13 +59,18 @@ muted form for every arc touching a doorway the player can fire right now,
 with no pointer needed. Hovering still takes the full accent for its own
 doorway and dims the rest, muted ones included.
 
-    type CorridorLook = 'forward' | 'return';
+An arc on a map's lower tier (see #Game Map's underpass) takes the same
+dashed look but curves, bowing away from the middle of the board, so it
+reads as passing beneath the solid corridors rather than joining them.
+
+    type CorridorLook = 'forward' | 'return' | 'under';
 
     interface CorridorStyle {
       look: CorridorLook;
       alpha: number;
       accent: boolean;
       muted?: boolean;
+      bow?: number;
     }
 
     const NORMAL_CORRIDOR: CorridorStyle = {
@@ -126,22 +136,29 @@ cannot drift apart.
       ctx.save();
       ctx.globalAlpha = style.alpha;
 
-      if (style.look === 'return') {
-        // Dashed line, no band
+      if (style.look === 'return' || style.look === 'under') {
+        // Dashed line, no band. A lower-tier arc bows to one side: the
+        // control point sits off the midpoint, perpendicular to the arc.
+        const bow = style.bow ?? 0;
+        const cx = (sx + ex) / 2 + px * bow;
+        const cy = (sy + ey) / 2 + py * bow;
         ctx.beginPath();
         ctx.moveTo(sx, sy);
-        ctx.lineTo(ex, ey);
+        ctx.quadraticCurveTo(cx, cy, ex, ey);
         ctx.setLineDash([8, 7]);
         ctx.strokeStyle = col.dashed;
         ctx.lineWidth = 3;
         ctx.stroke();
         ctx.setLineDash([]);
 
+        // The arrowhead follows the curve's tangent at its end.
+        const ta = bow === 0 ? angle : Math.atan2(ey - cy, ex - cx);
+        const tx = -Math.sin(ta), ty = Math.cos(ta);
         const rah = 11;
         ctx.beginPath();
-        ctx.moveTo(ex + Math.cos(angle) * rah, ey + Math.sin(angle) * rah);
-        ctx.lineTo(ex + px * 5, ey + py * 5);
-        ctx.lineTo(ex - px * 5, ey - py * 5);
+        ctx.moveTo(ex + Math.cos(ta) * rah, ey + Math.sin(ta) * rah);
+        ctx.lineTo(ex + tx * 5, ey + ty * 5);
+        ctx.lineTo(ex - tx * 5, ey - ty * 5);
         ctx.closePath();
         ctx.fillStyle = col.arrow;
         ctx.fill();
@@ -206,7 +223,7 @@ on top of the corridor already underneath and show up as a brighter patch.
       style: CorridorStyle,
     ): void {
       const len = Math.hypot(x2 - x1, y2 - y1);
-      if (len < 20 || style.look === 'return') return;
+      if (len < 20 || style.look !== 'forward') return;
       const margin = Math.min(28, Math.max(8, len * 0.30));
       const cw = Math.min(16, Math.max(4, len * 0.18));
       const dStart = Math.hypot(cx - x1, cy - y1);
@@ -254,6 +271,7 @@ than one, keeping the single-token case visually clean.
       chompers: number,
       ghosts: number,
       radius = 24,
+      showLabel = false,
     ): void {
       ctx.beginPath();
       ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
@@ -289,6 +307,7 @@ than one, keeping the single-token case visually clean.
         }
       }
 
+      if (!showLabel) return;
       ctx.fillStyle = '#a8a8b0';
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
@@ -376,6 +395,7 @@ needed on the transition record.
       t: Transition,
       enabled: boolean,
       kind: TransitionKind,
+      showLabel = false,
     ): void {
       const w = 18, h = 40;
 
@@ -413,6 +433,7 @@ needed on the transition record.
         ctx.stroke();
       }
 
+      if (!showLabel) return;
       ctx.fillStyle = '#a8a8b0';
       ctx.font = '9px monospace';
       ctx.textAlign = 'center';
@@ -426,7 +447,10 @@ played, so they are worked out once per map and remembered rather than
 recomputed every animation frame.
 
     const _feedbackCache = new WeakMap<GameNet, Set<string>>();
-    const _crossingCache = new WeakMap<PetriNet, Crossing[]>();
+    const _crossingCache = new WeakMap<GameNet, Crossing[]>();
+
+    interface Underpass { ids: Set<string>; cx: number; cy: number }
+    const _underpassCache = new WeakMap<GameNet, Underpass>();
 
     function cachedFeedback(gn: GameNet): Set<string> {
       let fb = _feedbackCache.get(gn);
@@ -434,9 +458,28 @@ recomputed every animation frame.
       return fb;
     }
 
-    function cachedCrossings(net: PetriNet): Crossing[] {
-      let cr = _crossingCache.get(net);
-      if (!cr) { cr = arcCrossings(net); _crossingCache.set(net, cr); }
+    // The lower-tier arcs, and the centre of the board they bow away from.
+    function cachedUnderpass(gn: GameNet): Underpass {
+      let u = _underpassCache.get(gn);
+      if (!u) {
+        const nodes = [...gn.net.places.values(), ...gn.net.transitions.values()];
+        const n = Math.max(1, nodes.length);
+        u = {
+          ids: underpassArcIds(gn),
+          cx: nodes.reduce((s, p) => s + p.x, 0) / n,
+          cy: nodes.reduce((s, p) => s + p.y, 0) / n,
+        };
+        _underpassCache.set(gn, u);
+      }
+      return u;
+    }
+
+    function cachedCrossings(gn: GameNet): Crossing[] {
+      let cr = _crossingCache.get(gn);
+      if (!cr) {
+        cr = arcCrossings(gn.net, cachedUnderpass(gn).ids);
+        _crossingCache.set(gn, cr);
+      }
       return cr;
     }
 
@@ -454,31 +497,60 @@ recomputed every animation frame.
       );
 
       const feedback = cachedFeedback(state.gn);
+      const under = cachedUnderpass(state.gn);
+      const posOf = (id: string) => net.places.get(id) ?? net.transitions.get(id);
+
+      // A lower-tier arc bows away from the board's centre, by a fraction
+      // of its length, so a long one sweeps wide and a short one not at
+      // all. Both halves of a route (place to doorway, doorway to place)
+      // pick their side from the whole route's chord, from the place
+      // before the doorway to the place after it, so they bow the same
+      // way and join into one smooth curve instead of an S.
+      const bowOf = (arc: Arc): number => {
+        const a = posOf(arc.source), b = posOf(arc.target);
+        if (!a || !b) return 0;
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (len < 100) return 0;
+        const door = net.transitions.has(arc.source) ? arc.source : arc.target;
+        const ins = inputArcs(net, door), outs = outputArcs(net, door);
+        const from = ins.length === 1 ? posOf(ins[0].source) : a;
+        const to = outs.length === 1 ? posOf(outs[0].target) : b;
+        if (!from || !to) return 0;
+        const cl = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+        const qx = -(to.y - from.y) / cl, qy = (to.x - from.x) / cl;
+        const side = ((from.x + to.x) / 2 - under.cx) * qx +
+                     ((from.y + to.y) / 2 - under.cy) * qy >= 0 ? 1 : -1;
+        return side * Math.min(110, len * 0.25);
+      };
+
       const styleOf = (arc: Arc): CorridorStyle => {
         const adjacent = focusId !== null &&
           (arc.source === focusId || arc.target === focusId);
+        const lower = under.ids.has(arc.id);
         return {
-          look: feedback.has(arc.id) ? 'return' : 'forward',
+          look: lower ? 'under' : feedback.has(arc.id) ? 'return' : 'forward',
           alpha: focusId === null || adjacent ? 1 : DIM_ALPHA,
           accent: adjacent,
           muted: enabledIds.has(arc.source) || enabledIds.has(arc.target),
+          ...(lower ? { bow: bowOf(arc) } : {}),
         };
       };
-      const posOf = (id: string) => net.places.get(id) ?? net.transitions.get(id);
 
       // Draw corridors first (behind everything)
       for (const arc of net.arcs) {
         const src = posOf(arc.source), tgt = posOf(arc.target);
         if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y, styleOf(arc));
       }
-      for (const c of cachedCrossings(net)) {
+      for (const c of cachedCrossings(state.gn)) {
         const a = posOf(c.b.source), b = posOf(c.b.target);
         if (a && b) drawBridge(ctx, a.x, a.y, b.x, b.y, c.x, c.y, styleOf(c.b));
       }
 
       // Transitions
       for (const t of net.transitions.values()) {
-        drawTransition(ctx, t, enabledIds.has(t.id), transitionKind(net, t.id));
+        drawTransition(
+          ctx, t, enabledIds.has(t.id), transitionKind(net, t.id), r.showLabels,
+        );
       }
 
       // Places (on top of corridors)
@@ -490,6 +562,7 @@ recomputed every animation frame.
           tokenCount(state.chompers, p.id),
           tokenCount(state.ghosts, p.id),
           nodeRadius,
+          r.showLabels,
         );
       }
 

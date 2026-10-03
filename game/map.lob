@@ -21,6 +21,23 @@ reconverges in pairs.
       playerStarts: string[];         // place ids where player tokens begin
       startMarkings?: Map<string, number>; // token count per start place (default 1)
       nodeRadius?: number;            // override place drawing radius (default 24)
+      underpass?: string[];           // transition ids drawn on the lower tier
+    }
+
+Some maps are not planar: an escape room that every corridor drains into
+cannot be drawn without its arcs crossing the forward maze. Rather than
+tangle the picture, such a map can name the transitions of that escape
+layer. Every arc touching one of them is drawn as a dashed curve, a plane
+beneath the solid corridors, and a crossing with it is not drawn as a
+junction at all.
+
+    function underpassArcIds(gn: GameNet): Set<string> {
+      const marked = new Set(gn.underpass ?? []);
+      return new Set(
+        gn.net.arcs
+          .filter(a => marked.has(a.source) || marked.has(a.target))
+          .map(a => a.id),
+      );
     }
 
     function gamePlace(
@@ -201,20 +218,29 @@ the arc's line segment by some minimum pixel distance.
       return Math.hypot(px - ex, py - ey);
     }
 
-    function _nodesClearOfForeignArcs(gn: GameNet, clearance = 20): boolean {
+    function _clearanceViolations(gn: GameNet, clearance = 20): string[] {
       const { net } = gn;
       const byId = new Map([...net.places.values(), ...net.transitions.values()]
         .map(n => [n.id, n]));
+      const found: string[] = [];
+      // Lower-tier arcs are drawn as curves, so their straight line says
+      // nothing about what they pass near.
+      const curved = underpassArcIds(gn);
       for (const node of byId.values()) {
         for (const arc of net.arcs) {
+          if (curved.has(arc.id)) continue;
           if (arc.source === node.id || arc.target === node.id) continue;
           const a = byId.get(arc.source), b = byId.get(arc.target);
           if (!a || !b) continue;
-          if (_distToSegment(node.x, node.y, a.x, a.y, b.x, b.y) < clearance)
-            return false;
+          const d = _distToSegment(node.x, node.y, a.x, a.y, b.x, b.y);
+          if (d < clearance) found.push(`${node.id} is ${Math.round(d)}px from ${arc.id}`);
         }
       }
-      return true;
+      return found;
+    }
+
+    function _nodesClearOfForeignArcs(gn: GameNet, clearance = 20): boolean {
+      return _clearanceViolations(gn, clearance).length === 0;
     }
 
     function makeDiamondMap(): GameNet {
@@ -311,7 +337,7 @@ the ghost moving rather than stuck waiting at an arm-end.
       addTransition(net, 't_sw_ss',  'SW→S',    405, 680);
       addTransition(net, 't_ss_se',  'S→SE',    615, 680);
       addTransition(net, 't_sync',   'Sync',    800, 440);  // JOIN: {ne,se}→east
-      addTransition(net, 't_rst',    'Restart', 270,  65);  // long restart
+      addTransition(net, 't_rst',    'Restart', 510,  50);  // long restart, drawn as two sweeps round the ring
       addTransition(net, 't_ne_mid', 'NE→Mid',  620, 330);  // escape from NE
       addTransition(net, 't_se_mid', 'SE→Mid',  620, 550);  // escape from SE
       addTransition(net, 't_mid_dep','Mid→Home',285, 380);  // return to depot
@@ -339,7 +365,10 @@ the ghost moving rather than stuck waiting at an arm-end.
       addArc(net, 'c21', 'mid',      't_mid_dep');
       addArc(net, 'c22', 't_mid_dep','depot');
 
-      return { net, ghostSpawns: ['t_sync'], playerStarts: ['depot'] };
+      return {
+        net, ghostSpawns: ['t_sync'], playerStarts: ['depot'],
+        underpass: ['t_ne_mid', 't_se_mid', 't_mid_dep', 't_rst'],
+      };
     }
 
 ##Mandala Map
@@ -383,33 +412,35 @@ before it becomes dangerous at all.
       const net = makeNet();
 
       // Hub and the two inner nodes from the level-1 fork
-      gamePlace(net, 'hub', 'Hub',         475, 460, false);
-      gamePlace(net, 'n1',  'Inner West',  280, 300);
-      gamePlace(net, 'n2',  'Inner East',  670, 300);
+      gamePlace(net, 'hub', 'Hub',         475, 290, false);
+      gamePlace(net, 'n1',  'Inner West',  200, 130);
+      gamePlace(net, 'n2',  'Inner East',  750, 130);
 
-      // Level-2 fork targets — the four petals
-      gamePlace(net, 'p_nw', 'NW Petal', 90,  120);
-      gamePlace(net, 'p_sw', 'SW Petal', 90,  480);
-      gamePlace(net, 'p_ne', 'NE Petal', 860, 120);
-      gamePlace(net, 'p_se', 'SE Petal', 860, 480);
+      // Level-2 fork targets — the four petals. Each side's fork opens
+      // into a diamond (fork, two rails, join), so the two petals of a
+      // side sit side by side and their rails run parallel without ever
+      // crossing: outer rail NW / NE, inner rail SW / SE.
+      gamePlace(net, 'p_nw', 'NW Petal', 110, 250);
+      gamePlace(net, 'p_sw', 'SW Petal', 290, 250);
+      gamePlace(net, 'p_se', 'SE Petal', 660, 250);
+      gamePlace(net, 'p_ne', 'NE Petal', 840, 250);
 
-      // Corridor places — the travel step between a petal and its join.
-      // nw_c/ne_c hug their own petal's edge (x=90/860) rather than
-      // drifting toward centre, where they'd sit on top of the opposite
-      // fork output arc (t_fork_n1 → p_sw, t_fork_n2 → p_se) and make the
-      // two paths look like one.
-      gamePlace(net, 'nw_c', 'NW Corridor', 90,  320);
-      gamePlace(net, 'sw_c', 'SW Corridor', 230, 600);
-      gamePlace(net, 'ne_c', 'NE Corridor', 860, 320);
-      gamePlace(net, 'se_c', 'SE Corridor', 720, 600);
+      // Corridor places — the travel step between a petal and its join,
+      // directly below their petal so each rail stays a straight line.
+      gamePlace(net, 'nw_c', 'NW Corridor', 110, 370);
+      gamePlace(net, 'sw_c', 'SW Corridor', 290, 370);
+      gamePlace(net, 'se_c', 'SE Corridor', 660, 370);
+      gamePlace(net, 'ne_c', 'NE Corridor', 840, 370);
 
-      // Reconvergence collectors and the goal
-      // Pulled further out from centre (away from the escape-route lines
-      // t_swc_esc/t_sec_esc → hub, which they used to sit right on top of).
-      gamePlace(net, 'c_w',  'West Collector', 280, 520);
-      gamePlace(net, 'c_e',  'East Collector', 670, 520);
-      gamePlace(net, 'goal', 'Goal',           475, 660);
-      gamePlace(net, 'mid',  'Mid',            410, 540);  // shared escape hub
+      // Reconvergence collectors, and the goal. The goal sits above the
+      // final join, inside the ring the four rails make, left of the
+      // centre line and mirrored on the right by Mid's way home. Goal,
+      // Restart and Mid's way home share one height, so the two returns
+      // sit either side of Restart in a row.
+      gamePlace(net, 'c_w',  'West Collector', 200, 500);
+      gamePlace(net, 'c_e',  'East Collector', 750, 500);
+      gamePlace(net, 'goal', 'Goal',           405, 375);
+      gamePlace(net, 'mid',  'Mid',            475, 640);  // shared escape hub
 
       // The fan handle — a one-way chain with no branches and no dots,
       // existing purely to put real distance between the ghost's spawn
@@ -418,46 +449,44 @@ before it becomes dangerous at all.
       // Hub regardless of which node was chosen, because the rest of the
       // net is compact; a dedicated corridor is the only way to actually
       // buy turns rather than just relocate the same short distance.
-      gamePlace(net, 'den', 'Ghost Den', 50,  780, false);
-      gamePlace(net, 'h4',  'Handle 4',  50,  720, false);
-      gamePlace(net, 'h3',  'Handle 3',  50,  660, false);
-      gamePlace(net, 'h2',  'Handle 2',  50,  600, false);
-      gamePlace(net, 'h1',  'Handle 1',  300, 700, false);
+      gamePlace(net, 'den', 'Ghost Den', 50,  740, false);
+      gamePlace(net, 'h4',  'Handle 4',  156, 740, false);
+      gamePlace(net, 'h3',  'Handle 3',  262, 740, false);
+      gamePlace(net, 'h2',  'Handle 2',  368, 740, false);
+      gamePlace(net, 'h1',  'Handle 1',  475, 740, false);
 
       // Forks
-      addTransition(net, 't_fork0',   'Fork',   475, 360);  // hub → n1,n2
-      addTransition(net, 't_fork_n1', 'Fork W', 180, 220);  // n1 → petals
-      addTransition(net, 't_fork_n2', 'Fork E', 770, 220);  // n2 → petals
+      addTransition(net, 't_fork0',   'Fork',   475, 210);  // hub → n1,n2
+      addTransition(net, 't_fork_n1', 'Fork W', 200, 190);  // n1 → petals
+      addTransition(net, 't_fork_n2', 'Fork E', 750, 190);  // n2 → petals
 
       // Petal → corridor travel
-      addTransition(net, 't_nw_c', 'NW Corridor Door', 90,  260);
-      addTransition(net, 't_sw_c', 'SW Corridor Door', 170, 560);
-      addTransition(net, 't_ne_c', 'NE Corridor Door', 860, 260);
-      addTransition(net, 't_se_c', 'SE Corridor Door', 780, 560);
+      addTransition(net, 't_nw_c', 'NW Corridor Door', 110, 310);
+      addTransition(net, 't_sw_c', 'SW Corridor Door', 290, 310);
+      addTransition(net, 't_se_c', 'SE Corridor Door', 660, 310);
+      addTransition(net, 't_ne_c', 'NE Corridor Door', 840, 310);
 
       // Joins
-      addTransition(net, 't_join_w', 'West Sync',  250, 420);  // → c_w
-      addTransition(net, 't_join_e', 'East Sync',  700, 420);  // → c_e
-      addTransition(net, 't_join',   'Final Sync', 475, 600);  // → goal
+      addTransition(net, 't_join_w', 'West Sync',  200, 440);  // → c_w
+      addTransition(net, 't_join_e', 'East Sync',  750, 440);  // → c_e
+      addTransition(net, 't_join',   'Final Sync', 475, 540);  // → goal
 
-      // Restart
-      // Off the hub/goal centreline — on it, this arc passes exactly
-      // through goal, which sits between t_rst and hub on that line.
-      addTransition(net, 't_rst', 'Restart', 620, 740);         // goal → hub
+      // Restart — on the centre line between goal and hub
+      addTransition(net, 't_rst', 'Restart', 475, 375);         // goal → hub
 
       // Escape routes from each corridor place into the shared Mid room
-      addTransition(net, 't_nwc_esc', 'NW Escape', 300, 380);
-      addTransition(net, 't_swc_esc', 'SW Escape', 300, 560);
-      addTransition(net, 't_nec_esc', 'NE Escape', 650, 380);
-      addTransition(net, 't_sec_esc', 'SE Escape', 650, 560);
-      addTransition(net, 't_mid_home', 'Mid->Home', 420, 470);
+      addTransition(net, 't_nwc_esc', 'NW Escape', 150, 620);
+      addTransition(net, 't_swc_esc', 'SW Escape', 330, 480);
+      addTransition(net, 't_nec_esc', 'NE Escape', 800, 620);
+      addTransition(net, 't_sec_esc', 'SE Escape', 620, 480);
+      addTransition(net, 't_mid_home', 'Mid->Home', 545, 375);  // mirrors Goal about x=475
 
-      // Fan handle — one-way, Den to Hub
-      addTransition(net, 't_den_h4', 'Den->H4', 50,  750);
-      addTransition(net, 't_h4_h3',  'H4->H3',  50,  690);
-      addTransition(net, 't_h3_h2',  'H3->H2',  50,  630);
-      addTransition(net, 't_h2_h1',  'H2->H1',  150, 650);
-      addTransition(net, 't_h1_mid', 'H1->Mid', 370, 650);
+      // Fan handle — one-way, a long tail along the bottom edge
+      addTransition(net, 't_den_h4', 'Den->H4', 103, 740);
+      addTransition(net, 't_h4_h3',  'H4->H3',  209, 740);
+      addTransition(net, 't_h3_h2',  'H3->H2',  315, 740);
+      addTransition(net, 't_h2_h1',  'H2->H1',  421, 740);
+      addTransition(net, 't_h1_mid', 'H1->Mid', 475, 690);
 
       // Level-1 fork (1 → 2)
       addArc(net, 'm1', 'hub',     't_fork0');
@@ -523,7 +552,14 @@ before it becomes dangerous at all.
       // Ghost spawns in the Den, at the far end of the fan handle — five
       // guaranteed hops from Hub (via Mid), not one or two like every
       // spawn tried before it.
-      return { net, ghostSpawns: ['t_den_h4'], playerStarts: ['hub'] };
+      return {
+        net, ghostSpawns: ['t_den_h4'], playerStarts: ['hub'],
+        underpass: [
+          't_nwc_esc', 't_swc_esc', 't_nec_esc', 't_sec_esc', 't_mid_home',
+          't_rst',
+          't_den_h4', 't_h4_h3', 't_h3_h2', 't_h2_h1', 't_h1_mid',
+        ],
+      };
     }
 
 The full-traversal claim below fires one deterministic sequence — ignoring

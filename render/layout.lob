@@ -34,12 +34,16 @@ that is the geometry worth answering for.
       return { x: ax + t * rx, y: ay + t * ry };
     }
 
-    function arcCrossings(net: PetriNet): Crossing[] {
+Arcs named in skip are left out entirely: a lower-tier arc that is drawn
+curved beneath the maze does not cross anything a player has to read.
+
+    function arcCrossings(net: PetriNet, skip?: Set<string>): Crossing[] {
       const pos = (id: string) => net.places.get(id) ?? net.transitions.get(id);
       const found: Crossing[] = [];
       for (let i = 0; i < net.arcs.length; i++) {
         for (let j = i + 1; j < net.arcs.length; j++) {
           const a = net.arcs[i], b = net.arcs[j];
+          if (skip && (skip.has(a.id) || skip.has(b.id))) continue;
           if (a.source === b.source || a.source === b.target ||
               a.target === b.source || a.target === b.target) continue;
           const a1 = pos(a.source), a2 = pos(a.target);
@@ -52,8 +56,8 @@ that is the geometry worth answering for.
       return found;
     }
 
-    function countCrossings(net: PetriNet): number {
-      return arcCrossings(net).length;
+    function countCrossings(net: PetriNet, skip?: Set<string>): number {
+      return arcCrossings(net, skip).length;
     }
 
 Four places and two transitions, laid out so exactly one pair of arcs
@@ -106,6 +110,11 @@ Four places and two transitions, laid out so exactly one pair of arcs
 
 ##two arcs forming an X are exactly one crossing
     countCrossings(_crossNet()) === 1
+
+##skipping either arc of a crossing removes it
+    countCrossings(_crossNet(), new Set(['a1'])) === 0
+    countCrossings(_crossNet(), new Set(['a4'])) === 0
+    countCrossings(_crossNet(), new Set(['a2'])) === 1
 
 #References
     #Petri Net

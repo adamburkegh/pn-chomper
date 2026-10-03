@@ -20,6 +20,12 @@ The renderer and canvas stay constant; only the game state is replaced.
 Maps can be loaded from local PNML files via the menu, or from a URL via
 the ?map= query parameter on startup.
 
+Place and transition labels are hidden on the built-in maps, whose names
+are for debugging rather than playing. A map loaded from outside (a PNML
+file or ?map= URL) shows them, because an imported net's names carry the
+meaning of its domain. Selecting a map resets this default; the menu's
+"Show labels" item or the L key overrides it until the next map is chosen.
+
     function hitTestTransition(
       net: PetriNet,
       x: number, y: number,
@@ -94,6 +100,7 @@ the ?map= query parameter on startup.
       mapIdx = i;
       gn  = mapList[i].fn();
       eng = makeEngine(gn);
+      rnd.showLabels = mapList[i].tag === 'loaded';
       showMapName(mapList[i].name);
     }
 
@@ -109,6 +116,8 @@ the ?map= query parameter on startup.
       menuItems = [
         { kind: 'header', label: 'Game' },
         { kind: 'action', label: 'Restart',         run: () => { eng = makeEngine(gn); } },
+        { kind: 'action', label: rnd.showLabels ? 'Hide labels' : 'Show labels',
+          tag: 'debug', run: () => { rnd.showLabels = !rnd.showLabels; } },
         { kind: 'action', label: 'Export PNML',     run: () => downloadPNML(gn, mapList[mapIdx].name) },
         { kind: 'action', label: 'Load PNML file…', run: () => { hideMenu(); pnmlInput.click(); } },
         { kind: 'header', label: 'About' },
@@ -277,6 +286,7 @@ the ?map= query parameter on startup.
 
       if (e.key === 'Escape') { showMenu(); }
       if (e.key === 'r' || e.key === 'R') { eng = makeEngine(gn); }
+      if (e.key === 'l' || e.key === 'L') { rnd.showLabels = !rnd.showLabels; }
     });
 
     window.addEventListener('resize', () => {
