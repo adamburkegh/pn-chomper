@@ -43,8 +43,7 @@ the ?map= query parameter on startup.
       { name: 'Split (Y-junction)',   fn: makeSplitMap,    tag: 'built-in' },
       { name: 'Diamond (sync + detours)', fn: makeDiamondMap, tag: 'built-in' },
       { name: 'Circuit (fork + join)',  fn: makeCircuitMap,  tag: 'built-in' },
-      // Mandala (cascade fork) — still being difficulty-tuned, switched off
-      // for this commit rather than shipped half-tuned. See sim/playtest.lob.
+      { name: 'Mandala (cascade fork)', fn: makeMandalaMap,  tag: 'built-in' },
     ];
     let mapIdx = 0;
 
@@ -199,12 +198,31 @@ the ?map= query parameter on startup.
       }
     })();
 
+    // The doorway under the pointer, if any — drawn with its own arcs
+    // highlighted and the rest dimmed. A map switch can leave a stale id
+    // behind, so it is checked against the current net before use.
+    let focusTid: string | null = null;
+
+    function currentFocus(): string | null {
+      return focusTid !== null && gn.net.transitions.has(focusTid) ? focusTid : null;
+    }
+
     function loop() {
-      render(rnd, eng);
+      render(rnd, eng, currentFocus());
       requestAnimationFrame(loop);
     }
     loop();
-    (window as any)._forceRender = () => render(rnd, eng);
+    (window as any)._forceRender = () => render(rnd, eng, currentFocus());
+
+    canvas.addEventListener('mousemove', (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const s = rect.width / DESIGN_W;
+      focusTid = hitTestTransition(
+        gn.net, (e.clientX - rect.left) / s, (e.clientY - rect.top) / s,
+      );
+    });
+
+    canvas.addEventListener('mouseleave', () => { focusTid = null; });
 
     canvas.addEventListener('click', (e: MouseEvent) => {
       const hint = document.getElementById('startup-hint');

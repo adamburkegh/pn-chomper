@@ -1,0 +1,111 @@
+#Render Layout
+
+Geometry questions about how a net is drawn, kept apart from the drawing
+itself so they can be checked without a canvas. The one the renderer needs
+is where two arcs cross: a corridor passing over another one should read as
+passing over, not as joining it. The same answer, counted, is a plain
+number for how tangled a map's drawing is.
+
+A crossing here means two arcs whose straight lines meet strictly inside
+both of them, and which share no endpoint. Arcs that meet at a node they
+both touch fan in or out of that node on purpose; that is not a crossing.
+The renderer draws every arc as a straight line between node centres, so
+that is the geometry worth answering for.
+
+    interface Crossing {
+      a: Arc;
+      b: Arc;
+      x: number;
+      y: number;
+    }
+
+    function segmentCrossing(
+      ax: number, ay: number, bx: number, by: number,
+      cx: number, cy: number, dx: number, dy: number,
+    ): { x: number; y: number } | null {
+      const rx = bx - ax, ry = by - ay;
+      const sx = dx - cx, sy = dy - cy;
+      const denom = rx * sy - ry * sx;
+      if (denom === 0) return null;
+      const t = ((cx - ax) * sy - (cy - ay) * sx) / denom;
+      const u = ((cx - ax) * ry - (cy - ay) * rx) / denom;
+      const eps = 1e-9;
+      if (t <= eps || t >= 1 - eps || u <= eps || u >= 1 - eps) return null;
+      return { x: ax + t * rx, y: ay + t * ry };
+    }
+
+    function arcCrossings(net: PetriNet): Crossing[] {
+      const pos = (id: string) => net.places.get(id) ?? net.transitions.get(id);
+      const found: Crossing[] = [];
+      for (let i = 0; i < net.arcs.length; i++) {
+        for (let j = i + 1; j < net.arcs.length; j++) {
+          const a = net.arcs[i], b = net.arcs[j];
+          if (a.source === b.source || a.source === b.target ||
+              a.target === b.source || a.target === b.target) continue;
+          const a1 = pos(a.source), a2 = pos(a.target);
+          const b1 = pos(b.source), b2 = pos(b.target);
+          if (!a1 || !a2 || !b1 || !b2) continue;
+          const hit = segmentCrossing(a1.x, a1.y, a2.x, a2.y, b1.x, b1.y, b2.x, b2.y);
+          if (hit) found.push({ a, b, x: hit.x, y: hit.y });
+        }
+      }
+      return found;
+    }
+
+    function countCrossings(net: PetriNet): number {
+      return arcCrossings(net).length;
+    }
+
+Four places and two transitions, laid out so exactly one pair of arcs
+(a1 and a4) cross and every other pair either shares a node or stays apart.
+
+    function _crossNet(): PetriNet {
+      const n = makeNet();
+      addPlace(n, 'a', 'a', 0, 0);     addPlace(n, 'b', 'b', 100, 100);
+      addPlace(n, 'c', 'c', 100, 0);   addPlace(n, 'd', 'd', 0, 100);
+      addTransition(n, 'x', 'x', 50, 50);
+      addTransition(n, 'y', 'y', 50, 200);
+      addArc(n, 'a1', 'a', 'y');       addArc(n, 'a2', 'y', 'b');
+      addArc(n, 'a3', 'c', 'x');       addArc(n, 'a4', 'x', 'd');
+      return n;
+    }
+
+    function _fanNet(): PetriNet {
+      const n = makeNet();
+      addPlace(n, 'p', 'p', 0, 0);
+      addPlace(n, 'q', 'q', 100, 100); addPlace(n, 'r', 'r', 100, -100);
+      addTransition(n, 't', 't', 50, 0);
+      addArc(n, 'f1', 'p', 't'); addArc(n, 'f2', 't', 'q');
+      addArc(n, 'f3', 't', 'r');
+      return n;
+    }
+
+~example
+    segmentCrossing(0, 0, 10, 10, 0, 10, 10, 0)!.x === 5
+    segmentCrossing(0, 0, 10, 10, 0, 10, 10, 0)!.y === 5
+    segmentCrossing(0, 0, 10, 0, 0, 5, 10, 5) === null
+    segmentCrossing(0, 0, 10, 0, 10, 0, 10, 10) === null
+    segmentCrossing(0, 0, 10, 10, 5, 5, 20, 5) === null
+    countCrossings(_fanNet()) === 0
+
+---
+
+#Tests
+
+##parallel segments never cross
+    segmentCrossing(0, 0, 10, 0, 0, 5, 10, 5) === null
+
+##segments meeting only at an endpoint do not cross
+    segmentCrossing(0, 0, 10, 0, 10, 0, 10, 10) === null
+
+##a segment ending on the middle of another is not a proper crossing
+    segmentCrossing(0, 0, 10, 10, 5, 5, 20, 5) === null
+
+##arcs fanning out of one node are not crossings
+    countCrossings(_fanNet()) === 0
+
+##two arcs forming an X are exactly one crossing
+    countCrossings(_crossNet()) === 1
+
+#References
+    #Petri Net

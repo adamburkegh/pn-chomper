@@ -10,18 +10,18 @@
     canvas { position: fixed; top: 0; left: 0; transform-origin: top left; }
     #instructions {
       position: fixed; bottom: 12px; right: 12px;
-      color: #555; font: 11px monospace; text-align: right;
+      color: #8e8e96; font: 11px monospace; text-align: right;
       pointer-events: none;
     }
     #version {
       position: fixed; bottom: 12px; left: 12px;
-      color: #555; font: 11px monospace;
+      color: #8e8e96; font: 11px monospace;
       pointer-events: none;
     }
     #menu-btn {
       position: fixed; top: 12px; right: 12px;
       background: none; border: none; padding: 4px 8px;
-      color: #555; font: 20px monospace;
+      color: #8e8e96; font: 20px monospace;
       cursor: pointer;
       z-index: 5;
       -webkit-tap-highlight-color: transparent;
@@ -123,7 +123,7 @@
   <div id="life-lost">Life lost ...</div>
   <div id="deadlock">Deadlock ...</div>
   <button id="menu-btn" aria-label="Open menu">☰</button>
-  <div id="startup-hint"> click a glowing doorway to play · Hit ☰ or ESC for maps &amp; settings</div>
+  <div id="startup-hint">Click a glowing doorway to play · Hit ☰ or ESC for maps &amp; settings</div>
   <div id="menu">
     <div id="menu-inner">
       <ul id="menu-items"></ul>
@@ -173,6 +173,49 @@
     return net.arcs.filter(
       (a) => a.source === transitionId && net.places.has(a.target)
     );
+  }
+  function feedbackArcs(net, starts) {
+    const out = /* @__PURE__ */ new Map();
+    for (const a of net.arcs) {
+      const list = out.get(a.source);
+      if (list) list.push(a);
+      else out.set(a.source, [a]);
+    }
+    const state = /* @__PURE__ */ new Map();
+    const back = /* @__PURE__ */ new Set();
+    for (const s of starts) {
+      if (state.has(s)) continue;
+      state.set(s, 1);
+      const stack = [[s, 0]];
+      while (stack.length > 0) {
+        const top = stack[stack.length - 1];
+        const arcs = out.get(top[0]) ?? [];
+        if (top[1] >= arcs.length) {
+          state.set(top[0], 2);
+          stack.pop();
+          continue;
+        }
+        const a = arcs[top[1]++];
+        const st = state.get(a.target);
+        if (st === 1) back.add(a.id);
+        else if (st === void 0) {
+          state.set(a.target, 1);
+          stack.push([a.target, 0]);
+        }
+      }
+    }
+    return back;
+  }
+  function returnArcs(net, starts) {
+    const back = feedbackArcs(net, starts);
+    const result = new Set(back);
+    for (const t of net.transitions.keys()) {
+      const outs = outputArcs(net, t);
+      if (outs.length > 0 && outs.every((a) => back.has(a.id))) {
+        for (const a of inputArcs(net, t)) result.add(a.id);
+      }
+    }
+    return result;
   }
   const _testNet = makeNet();
   addPlace(_testNet, "p1", "Start", 0, 0);
@@ -374,6 +417,99 @@
     addArc(net, "c22", "t_mid_dep", "depot");
     return { net, ghostSpawns: ["t_sync"], playerStarts: ["depot"] };
   }
+  function makeMandalaMap() {
+    const net = makeNet();
+    gamePlace(net, "hub", "Hub", 475, 460, false);
+    gamePlace(net, "n1", "Inner West", 280, 300);
+    gamePlace(net, "n2", "Inner East", 670, 300);
+    gamePlace(net, "p_nw", "NW Petal", 90, 120);
+    gamePlace(net, "p_sw", "SW Petal", 90, 480);
+    gamePlace(net, "p_ne", "NE Petal", 860, 120);
+    gamePlace(net, "p_se", "SE Petal", 860, 480);
+    gamePlace(net, "nw_c", "NW Corridor", 90, 320);
+    gamePlace(net, "sw_c", "SW Corridor", 230, 600);
+    gamePlace(net, "ne_c", "NE Corridor", 860, 320);
+    gamePlace(net, "se_c", "SE Corridor", 720, 600);
+    gamePlace(net, "c_w", "West Collector", 280, 520);
+    gamePlace(net, "c_e", "East Collector", 670, 520);
+    gamePlace(net, "goal", "Goal", 475, 660);
+    gamePlace(net, "mid", "Mid", 410, 540);
+    gamePlace(net, "den", "Ghost Den", 50, 780, false);
+    gamePlace(net, "h4", "Handle 4", 50, 720, false);
+    gamePlace(net, "h3", "Handle 3", 50, 660, false);
+    gamePlace(net, "h2", "Handle 2", 50, 600, false);
+    gamePlace(net, "h1", "Handle 1", 300, 700, false);
+    addTransition(net, "t_fork0", "Fork", 475, 360);
+    addTransition(net, "t_fork_n1", "Fork W", 180, 220);
+    addTransition(net, "t_fork_n2", "Fork E", 770, 220);
+    addTransition(net, "t_nw_c", "NW Corridor Door", 90, 260);
+    addTransition(net, "t_sw_c", "SW Corridor Door", 170, 560);
+    addTransition(net, "t_ne_c", "NE Corridor Door", 860, 260);
+    addTransition(net, "t_se_c", "SE Corridor Door", 780, 560);
+    addTransition(net, "t_join_w", "West Sync", 250, 420);
+    addTransition(net, "t_join_e", "East Sync", 700, 420);
+    addTransition(net, "t_join", "Final Sync", 475, 600);
+    addTransition(net, "t_rst", "Restart", 620, 740);
+    addTransition(net, "t_nwc_esc", "NW Escape", 300, 380);
+    addTransition(net, "t_swc_esc", "SW Escape", 300, 560);
+    addTransition(net, "t_nec_esc", "NE Escape", 650, 380);
+    addTransition(net, "t_sec_esc", "SE Escape", 650, 560);
+    addTransition(net, "t_mid_home", "Mid->Home", 420, 470);
+    addTransition(net, "t_den_h4", "Den->H4", 50, 750);
+    addTransition(net, "t_h4_h3", "H4->H3", 50, 690);
+    addTransition(net, "t_h3_h2", "H3->H2", 50, 630);
+    addTransition(net, "t_h2_h1", "H2->H1", 150, 650);
+    addTransition(net, "t_h1_mid", "H1->Mid", 370, 650);
+    addArc(net, "m1", "hub", "t_fork0");
+    addArc(net, "m2", "t_fork0", "n1");
+    addArc(net, "m3", "t_fork0", "n2");
+    addArc(net, "m4", "n1", "t_fork_n1");
+    addArc(net, "m5", "t_fork_n1", "p_nw");
+    addArc(net, "m6", "t_fork_n1", "p_sw");
+    addArc(net, "m7", "n2", "t_fork_n2");
+    addArc(net, "m8", "t_fork_n2", "p_ne");
+    addArc(net, "m9", "t_fork_n2", "p_se");
+    addArc(net, "m10", "p_nw", "t_nw_c");
+    addArc(net, "m11", "t_nw_c", "nw_c");
+    addArc(net, "m12", "p_sw", "t_sw_c");
+    addArc(net, "m13", "t_sw_c", "sw_c");
+    addArc(net, "m14", "p_ne", "t_ne_c");
+    addArc(net, "m15", "t_ne_c", "ne_c");
+    addArc(net, "m16", "p_se", "t_se_c");
+    addArc(net, "m17", "t_se_c", "se_c");
+    addArc(net, "m18", "nw_c", "t_join_w");
+    addArc(net, "m19", "sw_c", "t_join_w");
+    addArc(net, "m20", "t_join_w", "c_w");
+    addArc(net, "m21", "ne_c", "t_join_e");
+    addArc(net, "m22", "se_c", "t_join_e");
+    addArc(net, "m23", "t_join_e", "c_e");
+    addArc(net, "m24", "c_w", "t_join");
+    addArc(net, "m25", "c_e", "t_join");
+    addArc(net, "m26", "t_join", "goal");
+    addArc(net, "m27", "goal", "t_rst");
+    addArc(net, "m28", "t_rst", "hub");
+    addArc(net, "m29", "nw_c", "t_nwc_esc");
+    addArc(net, "m30", "t_nwc_esc", "mid");
+    addArc(net, "m31", "sw_c", "t_swc_esc");
+    addArc(net, "m32", "t_swc_esc", "mid");
+    addArc(net, "m33", "ne_c", "t_nec_esc");
+    addArc(net, "m34", "t_nec_esc", "mid");
+    addArc(net, "m35", "se_c", "t_sec_esc");
+    addArc(net, "m36", "t_sec_esc", "mid");
+    addArc(net, "m37", "mid", "t_mid_home");
+    addArc(net, "m38", "t_mid_home", "hub");
+    addArc(net, "m39", "den", "t_den_h4");
+    addArc(net, "m40", "t_den_h4", "h4");
+    addArc(net, "m41", "h4", "t_h4_h3");
+    addArc(net, "m42", "t_h4_h3", "h3");
+    addArc(net, "m43", "h3", "t_h3_h2");
+    addArc(net, "m44", "t_h3_h2", "h2");
+    addArc(net, "m45", "h2", "t_h2_h1");
+    addArc(net, "m46", "t_h2_h1", "h1");
+    addArc(net, "m47", "h1", "t_h1_mid");
+    addArc(net, "m48", "t_h1_mid", "mid");
+    return { net, ghostSpawns: ["t_den_h4"], playerStarts: ["hub"] };
+  }
   function spawnChompers(gn) {
     const chompers = emptyMarking();
     for (const startId of gn.playerStarts) {
@@ -503,6 +639,33 @@
   function playerEnabledTransitions(engine) {
     return enabledTransitions(engine.state.gn.net, engine.state.chompers);
   }
+  function segmentCrossing(ax, ay, bx, by, cx, cy, dx, dy) {
+    const rx = bx - ax, ry = by - ay;
+    const sx = dx - cx, sy = dy - cy;
+    const denom = rx * sy - ry * sx;
+    if (denom === 0) return null;
+    const t = ((cx - ax) * sy - (cy - ay) * sx) / denom;
+    const u = ((cx - ax) * ry - (cy - ay) * rx) / denom;
+    const eps = 1e-9;
+    if (t <= eps || t >= 1 - eps || u <= eps || u >= 1 - eps) return null;
+    return { x: ax + t * rx, y: ay + t * ry };
+  }
+  function arcCrossings(net) {
+    const pos = (id) => net.places.get(id) ?? net.transitions.get(id);
+    const found = [];
+    for (let i = 0; i < net.arcs.length; i++) {
+      for (let j = i + 1; j < net.arcs.length; j++) {
+        const a = net.arcs[i], b = net.arcs[j];
+        if (a.source === b.source || a.source === b.target || a.target === b.source || a.target === b.target) continue;
+        const a1 = pos(a.source), a2 = pos(a.target);
+        const b1 = pos(b.source), b2 = pos(b.target);
+        if (!a1 || !a2 || !b1 || !b2) continue;
+        const hit = segmentCrossing(a1.x, a1.y, a2.x, a2.y, b1.x, b1.y, b2.x, b2.y);
+        if (hit) found.push({ a, b, x: hit.x, y: hit.y });
+      }
+    }
+    return found;
+  }
   function makeRenderer(canvas) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Cannot get 2D context");
@@ -512,7 +675,38 @@
     r.ctx.fillStyle = "#111";
     r.ctx.fillRect(0, 0, r.canvas.width, r.canvas.height);
   }
-  function drawCorridor(ctx, x1, y1, x2, y2) {
+  const NORMAL_CORRIDOR = {
+    look: "forward",
+    alpha: 1,
+    accent: false
+  };
+  const DIM_ALPHA = 0.4;
+  const PLAIN_COLOURS = {
+    fill: "#222226",
+    edge: "#707078",
+    stripe: "#34343a",
+    arrow: "#8a8a92",
+    dashed: "#808088"
+  };
+  const ACCENT_COLOURS = {
+    fill: "#2e2a12",
+    edge: "#8a7a1a",
+    stripe: "#4a4018",
+    arrow: "#ffe000",
+    dashed: "#c9a800"
+  };
+  const MUTED_COLOURS = {
+    fill: "#26230f",
+    edge: "#6e6318",
+    stripe: "#3a3412",
+    arrow: "#bfa800",
+    dashed: "#a08c10"
+  };
+  function coloursFor(style) {
+    if (style.accent) return ACCENT_COLOURS;
+    return style.muted ? MUTED_COLOURS : PLAIN_COLOURS;
+  }
+  function drawCorridor(ctx, x1, y1, x2, y2, style = NORMAL_CORRIDOR) {
     const angle = Math.atan2(y2 - y1, x2 - x1);
     const len = Math.hypot(x2 - x1, y2 - y1);
     const margin = Math.min(28, Math.max(8, len * 0.3));
@@ -524,21 +718,44 @@
     if (len < 20) return;
     const px = -Math.sin(angle);
     const py = Math.cos(angle);
+    const col = coloursFor(style);
+    ctx.save();
+    ctx.globalAlpha = style.alpha;
+    if (style.look === "return") {
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.setLineDash([8, 7]);
+      ctx.strokeStyle = col.dashed;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const rah = 11;
+      ctx.beginPath();
+      ctx.moveTo(ex + Math.cos(angle) * rah, ey + Math.sin(angle) * rah);
+      ctx.lineTo(ex + px * 5, ey + py * 5);
+      ctx.lineTo(ex - px * 5, ey - py * 5);
+      ctx.closePath();
+      ctx.fillStyle = col.arrow;
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
     ctx.beginPath();
     ctx.moveTo(sx + px * cw, sy + py * cw);
     ctx.lineTo(ex + px * cw, ey + py * cw);
     ctx.lineTo(ex - px * cw, ey - py * cw);
     ctx.lineTo(sx - px * cw, sy - py * cw);
     ctx.closePath();
-    ctx.fillStyle = "#1e1e1e";
+    ctx.fillStyle = col.fill;
     ctx.fill();
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = col.edge;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(sx, sy);
     ctx.lineTo(ex, ey);
-    ctx.strokeStyle = "#2a2a2a";
+    ctx.strokeStyle = col.stripe;
     ctx.lineWidth = 4;
     ctx.stroke();
     const ah = 14;
@@ -547,15 +764,53 @@
     ctx.lineTo(ex + px * 7, ey + py * 7);
     ctx.lineTo(ex - px * 7, ey - py * 7);
     ctx.closePath();
-    ctx.fillStyle = "#444";
+    ctx.fillStyle = col.arrow;
     ctx.fill();
+    ctx.restore();
+  }
+  function blendOnBackground(hex, alpha) {
+    const bg = [17, 17, 17];
+    const ch = (i) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16);
+    const mix = (i) => Math.round(bg[i] + (ch(i) - bg[i]) * alpha);
+    return `rgb(${mix(0)},${mix(1)},${mix(2)})`;
+  }
+  function drawBridge(ctx, x1, y1, x2, y2, cx, cy, style) {
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    if (len < 20 || style.look === "return") return;
+    const margin = Math.min(28, Math.max(8, len * 0.3));
+    const cw = Math.min(16, Math.max(4, len * 0.18));
+    const dStart = Math.hypot(cx - x1, cy - y1);
+    const avail = Math.min(dStart, len - dStart) - margin;
+    if (avail < 6) return;
+    const half = Math.min(26, avail);
+    const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+    const col = coloursFor(style);
+    const tone = (c) => blendOnBackground(c, style.alpha);
+    ctx.save();
+    ctx.lineCap = "butt";
+    ctx.beginPath();
+    ctx.moveTo(cx - ux * half, cy - uy * half);
+    ctx.lineTo(cx + ux * half, cy + uy * half);
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = cw * 2 + 8;
+    ctx.stroke();
+    ctx.strokeStyle = tone(col.edge);
+    ctx.lineWidth = cw * 2;
+    ctx.stroke();
+    ctx.strokeStyle = tone(col.fill);
+    ctx.lineWidth = cw * 2 - 3;
+    ctx.stroke();
+    ctx.strokeStyle = tone(col.stripe);
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
   }
   function drawPlace(ctx, p, hasDot, chompers, ghosts, radius = 24) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fillStyle = "#1a1a1a";
     ctx.fill();
-    ctx.strokeStyle = chompers > 0 ? "#555" : "#333";
+    ctx.strokeStyle = chompers > 0 ? "#9a9aa2" : "#707078";
     ctx.lineWidth = 2;
     ctx.stroke();
     if (hasDot && chompers === 0) {
@@ -581,7 +836,7 @@
         ctx.textBaseline = "alphabetic";
       }
     }
-    ctx.fillStyle = "#666";
+    ctx.fillStyle = "#a8a8b0";
     ctx.font = "10px monospace";
     ctx.textAlign = "center";
     ctx.fillText(p.label, p.x, p.y + radius + 13);
@@ -632,7 +887,7 @@
     const palette = {
       fork: { bg: enabled ? "#552200" : "#1e0d00", border: enabled ? "#ff8800" : "#cc5500" },
       join: { bg: enabled ? "#003344" : "#001520", border: enabled ? "#00ccff" : "#0088bb" },
-      regular: { bg: enabled ? "#554400" : "#1a1a1a", border: enabled ? "#ffe000" : "#444" }
+      regular: { bg: enabled ? "#554400" : "#1a1a1a", border: enabled ? "#ffe000" : "#707078" }
     };
     const { bg, border } = palette[kind];
     ctx.fillStyle = bg;
@@ -659,12 +914,30 @@
       ctx.lineTo(t.x + 3, t.y + 6);
       ctx.stroke();
     }
-    ctx.fillStyle = "#666";
+    ctx.fillStyle = "#a8a8b0";
     ctx.font = "9px monospace";
     ctx.textAlign = "center";
     ctx.fillText(t.label.slice(0, 8), t.x, t.y + h / 2 + 12);
   }
-  function render(r, engine) {
+  const _feedbackCache = /* @__PURE__ */ new WeakMap();
+  const _crossingCache = /* @__PURE__ */ new WeakMap();
+  function cachedFeedback(gn) {
+    let fb = _feedbackCache.get(gn);
+    if (!fb) {
+      fb = returnArcs(gn.net, gn.playerStarts);
+      _feedbackCache.set(gn, fb);
+    }
+    return fb;
+  }
+  function cachedCrossings(net) {
+    let cr = _crossingCache.get(net);
+    if (!cr) {
+      cr = arcCrossings(net);
+      _crossingCache.set(net, cr);
+    }
+    return cr;
+  }
+  function render(r, engine, focusId = null) {
     clearCanvas(r);
     const { state } = engine;
     const net = state.gn.net;
@@ -673,10 +946,24 @@
     const enabledIds = new Set(
       engine.phase === "player" ? playerEnabledTransitions(engine) : []
     );
+    const feedback = cachedFeedback(state.gn);
+    const styleOf = (arc) => {
+      const adjacent = focusId !== null && (arc.source === focusId || arc.target === focusId);
+      return {
+        look: feedback.has(arc.id) ? "return" : "forward",
+        alpha: focusId === null || adjacent ? 1 : DIM_ALPHA,
+        accent: adjacent,
+        muted: enabledIds.has(arc.source) || enabledIds.has(arc.target)
+      };
+    };
+    const posOf = (id) => net.places.get(id) ?? net.transitions.get(id);
     for (const arc of net.arcs) {
-      const src = net.places.get(arc.source) ?? net.transitions.get(arc.source);
-      const tgt = net.places.get(arc.target) ?? net.transitions.get(arc.target);
-      if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y);
+      const src = posOf(arc.source), tgt = posOf(arc.target);
+      if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y, styleOf(arc));
+    }
+    for (const c of cachedCrossings(net)) {
+      const a = posOf(c.b.source), b = posOf(c.b.target);
+      if (a && b) drawBridge(ctx, a.x, a.y, b.x, b.y, c.x, c.y, styleOf(c.b));
     }
     for (const t of net.transitions.values()) {
       drawTransition(ctx, t, enabledIds.has(t.id), transitionKind(net, t.id));
@@ -691,6 +978,21 @@
         tokenCount(state.ghosts, p.id),
         nodeRadius
       );
+    }
+    if (focusId !== null) {
+      ctx.save();
+      ctx.strokeStyle = "#ffe000";
+      ctx.globalAlpha = 0.75;
+      ctx.lineWidth = 2;
+      for (const arc of net.arcs) {
+        if (arc.source !== focusId && arc.target !== focusId) continue;
+        const other = posOf(arc.source === focusId ? arc.target : arc.source);
+        if (!other) continue;
+        ctx.beginPath();
+        ctx.arc(other.x, other.y, nodeRadius + 6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
     if (engine.eaten) {
       const elapsed = Date.now() - engine.eaten.at;
@@ -902,9 +1204,8 @@
     { name: "Figure-eight", fn: makeClassicMap, tag: "built-in" },
     { name: "Split (Y-junction)", fn: makeSplitMap, tag: "built-in" },
     { name: "Diamond (sync + detours)", fn: makeDiamondMap, tag: "built-in" },
-    { name: "Circuit (fork + join)", fn: makeCircuitMap, tag: "built-in" }
-    // Mandala (cascade fork) — still being difficulty-tuned, switched off
-    // for this commit rather than shipped half-tuned. See sim/playtest.lob.
+    { name: "Circuit (fork + join)", fn: makeCircuitMap, tag: "built-in" },
+    { name: "Mandala (cascade fork)", fn: makeMandalaMap, tag: "built-in" }
   ];
   let mapIdx = 0;
   {
@@ -993,11 +1294,13 @@
       document.getElementById("menu").style.display = "flex";
     }, hideMenu = function() {
       document.getElementById("menu").style.display = "none";
+    }, currentFocus = function() {
+      return focusTid !== null && gn.net.transitions.has(focusTid) ? focusTid : null;
     }, loop = function() {
-      render(rnd, eng);
+      render(rnd, eng, currentFocus());
       requestAnimationFrame(loop);
     };
-    var applyScale2 = applyScale, showMapName2 = showMapName, showLifeLost2 = showLifeLost, showDeadlock2 = showDeadlock, selectMap2 = selectMap, buildMenuItems2 = buildMenuItems, menuActions2 = menuActions, renderMenu2 = renderMenu, showMenu2 = showMenu, hideMenu2 = hideMenu, loop2 = loop;
+    var applyScale2 = applyScale, showMapName2 = showMapName, showLifeLost2 = showLifeLost, showDeadlock2 = showDeadlock, selectMap2 = selectMap, buildMenuItems2 = buildMenuItems, menuActions2 = menuActions, renderMenu2 = renderMenu, showMenu2 = showMenu, hideMenu2 = hideMenu, currentFocus2 = currentFocus, loop2 = loop;
     const canvas = document.getElementById("game-canvas");
     const DESIGN_W = 950;
     const DESIGN_H = 780;
@@ -1044,8 +1347,21 @@
         console.error("?map= load failed:", err);
       }
     })();
+    let focusTid = null;
     loop();
-    window._forceRender = () => render(rnd, eng);
+    window._forceRender = () => render(rnd, eng, currentFocus());
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const s = rect.width / DESIGN_W;
+      focusTid = hitTestTransition(
+        gn.net,
+        (e.clientX - rect.left) / s,
+        (e.clientY - rect.top) / s
+      );
+    });
+    canvas.addEventListener("mouseleave", () => {
+      focusTid = null;
+    });
     canvas.addEventListener("click", (e) => {
       const hint = document.getElementById("startup-hint");
       if (hint) hint.style.opacity = "0";

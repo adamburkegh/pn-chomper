@@ -110,6 +110,62 @@ Convenience accessors used by the marking and renderer modules.
       return ids.map(id => net.transitions.get(id)!);
     }
 
+A feedback arc is one that closes a cycle: it points back at a node that
+is still being explored on the path from a start place. Following arcs
+depth first from the start places, every arc whose target is currently
+on the path is flagged. This is structural — it needs no names, no marked
+roles and no marking — so it applies unchanged to any net, including one
+loaded from outside. Which arc of a cycle gets flagged can depend on arc
+declaration order, but every cycle contributes at least one, and arcs
+into a join from a longer branch are not flagged (they close no cycle).
+
+    function feedbackArcs(net: PetriNet, starts: string[]): Set<string> {
+      const out = new Map<string, Arc[]>();
+      for (const a of net.arcs) {
+        const list = out.get(a.source);
+        if (list) list.push(a); else out.set(a.source, [a]);
+      }
+      const state = new Map<string, number>();  // 1 = on path, 2 = done
+      const back = new Set<string>();
+      for (const s of starts) {
+        if (state.has(s)) continue;
+        state.set(s, 1);
+        const stack: Array<[string, number]> = [[s, 0]];
+        while (stack.length > 0) {
+          const top = stack[stack.length - 1];
+          const arcs = out.get(top[0]) ?? [];
+          if (top[1] >= arcs.length) { state.set(top[0], 2); stack.pop(); continue; }
+          const a = arcs[top[1]++];
+          const st = state.get(a.target);
+          if (st === 1) back.add(a.id);
+          else if (st === undefined) {
+            state.set(a.target, 1);
+            stack.push([a.target, 0]);
+          }
+        }
+      }
+      return back;
+    }
+
+A return transition is one whose every output arc is a feedback arc: it
+exists only to carry tokens back. Drawing just its outgoing half as a return
+reads as a forward corridor that mysteriously ends in a dashed one, so the
+arcs feeding it are part of the return too. A transition that also forks
+forward (some outputs not feedback) is not a return transition, and its
+inputs stay forward.
+
+    function returnArcs(net: PetriNet, starts: string[]): Set<string> {
+      const back = feedbackArcs(net, starts);
+      const result = new Set(back);
+      for (const t of net.transitions.keys()) {
+        const outs = outputArcs(net, t);
+        if (outs.length > 0 && outs.every(a => back.has(a.id))) {
+          for (const a of inputArcs(net, t)) result.add(a.id);
+        }
+      }
+      return result;
+    }
+
 Here is a small net used by the examples below: one place feeding a
 transition that fans out to two output places (the classic split).
 
@@ -125,6 +181,35 @@ transition that fans out to two output places (the classic split).
     function _throwsOnBadArc(): boolean {
       try { addArc(_testNet, 'bad', 'p1', 'p2'); return false; }
       catch { return true; }
+    }
+
+A loop (p0 → t0 → p1 → t1 → back to p0), and a split whose two branches
+have different lengths before they rejoin — the second shape is the one a
+distance-based rule would wrongly flag.
+
+    function _loopNet(): PetriNet {
+      const n = makeNet();
+      addPlace(n, 'p0', 'A', 0, 0);   addPlace(n, 'p1', 'B', 200, 0);
+      addTransition(n, 't0', 'T0', 100, 0);
+      addTransition(n, 't1', 'T1', 100, 100);
+      addArc(n, 'c1', 'p0', 't0');  addArc(n, 'c2', 't0', 'p1');
+      addArc(n, 'c3', 'p1', 't1');  addArc(n, 'c4', 't1', 'p0');
+      return n;
+    }
+
+    function _unevenJoinNet(): PetriNet {
+      const n = makeNet();
+      for (const id of ['p0', 'pa', 'pc', 'pb', 'pd', 'pe', 'pf'])
+        addPlace(n, id, id, 0, 0);
+      for (const id of ['t0', 'ta', 'tb', 'tc', 'tj'])
+        addTransition(n, id, id, 0, 0);
+      addArc(n, 'j1', 'p0', 't0');  addArc(n, 'j2', 't0', 'pa');
+      addArc(n, 'j3', 't0', 'pb');  addArc(n, 'j4', 'pa', 'ta');
+      addArc(n, 'j5', 'ta', 'pc');  addArc(n, 'j6', 'pb', 'tb');
+      addArc(n, 'j7', 'tb', 'pd');  addArc(n, 'j8', 'pd', 'tc');
+      addArc(n, 'j9', 'tc', 'pe');  addArc(n, 'j10', 'pc', 'tj');
+      addArc(n, 'j11', 'pe', 'tj'); addArc(n, 'j12', 'tj', 'pf');
+      return n;
     }
 
 ~example
@@ -150,5 +235,21 @@ transition that fans out to two output places (the classic split).
 
 ##arc weight defaults to 1
     inputArcs(_testNet, 't1')[0].weight === 1
+
+##a loop has exactly one feedback arc, the one closing it
+    feedbackArcs(_loopNet(), ['p0']).size === 1
+    feedbackArcs(_loopNet(), ['p0']).has('c4')
+
+##a split with no cycle has no feedback arcs
+    feedbackArcs(_testNet, ['p1']).size === 0
+
+##joining a longer branch is not feedback
+    feedbackArcs(_unevenJoinNet(), ['p0']).size === 0
+
+##a return transition's input arc is part of the return, nothing else is
+    returnArcs(_loopNet(), ['p0']).size === 2
+    returnArcs(_loopNet(), ['p0']).has('c3')
+    returnArcs(_loopNet(), ['p0']).has('c4')
+    returnArcs(_unevenJoinNet(), ['p0']).size === 0
 
 #References

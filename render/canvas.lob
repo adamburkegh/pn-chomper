@@ -34,10 +34,76 @@ centre stripe and a small arrowhead triangle at the target end to indicate
 direction. The corridor is clipped short at both ends so it does not
 overdraw the place circles or transition rectangles.
 
+An arc that closes a cycle, or feeds a transition that only closes cycles
+(see #Petri Net's returnArcs), is drawn differently from the rest: a dashed
+line with no band, so a return reads as dashed all the way from the place
+it leaves to the place it reaches. These are the arcs
+that carry a token back toward where it started — in a workflow net, the
+usually-undrawn arc from the final place back to the initial one is the
+canonical example, and a map's restart is exactly that arc made visible.
+They are what makes a map playable as a game rather than a one-shot, so
+they are drawn lighter, not hidden: they read as "this leads back" instead
+of as another forward corridor cutting across the maze.
+
+When a transition is focused (hovered), its own arcs are drawn bright and
+every other arc is dimmed, so what a doorway does can be read even in a
+tangled drawing.
+
+Hover does not exist on a touch screen, so the same colour is used in a
+muted form for every arc touching a doorway the player can fire right now,
+with no pointer needed. Hovering still takes the full accent for its own
+doorway and dims the rest, muted ones included.
+
+    type CorridorLook = 'forward' | 'return';
+
+    interface CorridorStyle {
+      look: CorridorLook;
+      alpha: number;
+      accent: boolean;
+      muted?: boolean;
+    }
+
+    const NORMAL_CORRIDOR: CorridorStyle = {
+      look: 'forward', alpha: 1, accent: false,
+    };
+
+The corridor structure is the puzzle itself, so it has to be visible against
+the background rather than merely present: edges sit at roughly 4:1
+contrast, not the 1.1-1.5:1 a near-black-on-black band gave. The palette is
+kept in one place so the corridors and the bridges drawn across crossings
+cannot drift apart.
+
+    const DIM_ALPHA = 0.4;
+
+    interface CorridorColours {
+      fill: string; edge: string; stripe: string; arrow: string; dashed: string;
+    }
+
+    const PLAIN_COLOURS: CorridorColours = {
+      fill: '#222226', edge: '#707078', stripe: '#34343a',
+      arrow: '#8a8a92', dashed: '#808088',
+    };
+
+    const ACCENT_COLOURS: CorridorColours = {
+      fill: '#2e2a12', edge: '#8a7a1a', stripe: '#4a4018',
+      arrow: '#ffe000', dashed: '#c9a800',
+    };
+
+    const MUTED_COLOURS: CorridorColours = {
+      fill: '#26230f', edge: '#6e6318', stripe: '#3a3412',
+      arrow: '#bfa800', dashed: '#a08c10',
+    };
+
+    function coloursFor(style: CorridorStyle): CorridorColours {
+      if (style.accent) return ACCENT_COLOURS;
+      return style.muted ? MUTED_COLOURS : PLAIN_COLOURS;
+    }
+
     function drawCorridor(
       ctx: CanvasRenderingContext2D,
       x1: number, y1: number,
       x2: number, y2: number,
+      style: CorridorStyle = NORMAL_CORRIDOR,
     ): void {
       const angle  = Math.atan2(y2 - y1, x2 - x1);
       const len    = Math.hypot(x2 - x1, y2 - y1);
@@ -56,6 +122,33 @@ overdraw the place circles or transition rectangles.
       const px = -Math.sin(angle);
       const py =  Math.cos(angle);
 
+      const col = coloursFor(style);
+      ctx.save();
+      ctx.globalAlpha = style.alpha;
+
+      if (style.look === 'return') {
+        // Dashed line, no band
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.setLineDash([8, 7]);
+        ctx.strokeStyle = col.dashed;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const rah = 11;
+        ctx.beginPath();
+        ctx.moveTo(ex + Math.cos(angle) * rah, ey + Math.sin(angle) * rah);
+        ctx.lineTo(ex + px * 5, ey + py * 5);
+        ctx.lineTo(ex - px * 5, ey - py * 5);
+        ctx.closePath();
+        ctx.fillStyle = col.arrow;
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
       // Filled corridor band
       ctx.beginPath();
       ctx.moveTo(sx + px * cw, sy + py * cw);
@@ -63,17 +156,17 @@ overdraw the place circles or transition rectangles.
       ctx.lineTo(ex - px * cw, ey - py * cw);
       ctx.lineTo(sx - px * cw, sy - py * cw);
       ctx.closePath();
-      ctx.fillStyle = '#1e1e1e';
+      ctx.fillStyle = col.fill;
       ctx.fill();
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = col.edge;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
 
       // Centre highlight stripe
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(ex, ey);
-      ctx.strokeStyle = '#2a2a2a';
+      ctx.strokeStyle = col.stripe;
       ctx.lineWidth = 4;
       ctx.stroke();
 
@@ -84,8 +177,64 @@ overdraw the place circles or transition rectangles.
       ctx.lineTo(ex + px * 7, ey + py * 7);
       ctx.lineTo(ex - px * 7, ey - py * 7);
       ctx.closePath();
-      ctx.fillStyle = '#444';
+      ctx.fillStyle = col.arrow;
       ctx.fill();
+      ctx.restore();
+    }
+
+When two corridors cross, the one drawn later is redrawn across the
+crossing with a background-coloured halo, so the earlier one visibly
+passes beneath it instead of merging into it. Only the stretch around the
+crossing is redrawn, and not at all if the crossing is too close to either
+end of the arc for the halo to fit between the corridor's clipped ends.
+
+A bridge is drawn opaque, with its colours pre-mixed toward the background
+when the arc is dimmed. Drawing it with partial alpha instead would stack
+on top of the corridor already underneath and show up as a brighter patch.
+
+    function blendOnBackground(hex: string, alpha: number): string {
+      const bg = [0x11, 0x11, 0x11];
+      const ch = (i: number) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16);
+      const mix = (i: number) => Math.round(bg[i] + (ch(i) - bg[i]) * alpha);
+      return `rgb(${mix(0)},${mix(1)},${mix(2)})`;
+    }
+
+    function drawBridge(
+      ctx: CanvasRenderingContext2D,
+      x1: number, y1: number, x2: number, y2: number,
+      cx: number, cy: number,
+      style: CorridorStyle,
+    ): void {
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      if (len < 20 || style.look === 'return') return;
+      const margin = Math.min(28, Math.max(8, len * 0.30));
+      const cw = Math.min(16, Math.max(4, len * 0.18));
+      const dStart = Math.hypot(cx - x1, cy - y1);
+      const avail = Math.min(dStart, len - dStart) - margin;
+      if (avail < 6) return;
+      const half = Math.min(26, avail);
+      const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+
+      const col = coloursFor(style);
+      const tone = (c: string) => blendOnBackground(c, style.alpha);
+      ctx.save();
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.moveTo(cx - ux * half, cy - uy * half);
+      ctx.lineTo(cx + ux * half, cy + uy * half);
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = cw * 2 + 8;
+      ctx.stroke();
+      ctx.strokeStyle = tone(col.edge);
+      ctx.lineWidth = cw * 2;
+      ctx.stroke();
+      ctx.strokeStyle = tone(col.fill);
+      ctx.lineWidth = cw * 2 - 3;
+      ctx.stroke();
+      ctx.strokeStyle = tone(col.stripe);
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
     }
 
 ##Drawing Places
@@ -110,7 +259,7 @@ than one, keeping the single-token case visually clean.
       ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = '#1a1a1a';
       ctx.fill();
-      ctx.strokeStyle = chompers > 0 ? '#555' : '#333';
+      ctx.strokeStyle = chompers > 0 ? '#9a9aa2' : '#707078';
       ctx.lineWidth = 2;
       ctx.stroke();
 
@@ -140,7 +289,7 @@ than one, keeping the single-token case visually clean.
         }
       }
 
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = '#a8a8b0';
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(p.label, p.x, p.y + radius + 13);
@@ -233,7 +382,7 @@ needed on the transition record.
       const palette = {
         fork:    { bg: enabled ? '#552200' : '#1e0d00', border: enabled ? '#ff8800' : '#cc5500' },
         join:    { bg: enabled ? '#003344' : '#001520', border: enabled ? '#00ccff' : '#0088bb' },
-        regular: { bg: enabled ? '#554400' : '#1a1a1a', border: enabled ? '#ffe000' : '#444'    },
+        regular: { bg: enabled ? '#554400' : '#1a1a1a', border: enabled ? '#ffe000' : '#707078' },
       };
       const { bg, border } = palette[kind];
 
@@ -264,7 +413,7 @@ needed on the transition record.
         ctx.stroke();
       }
 
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = '#a8a8b0';
       ctx.font = '9px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(t.label.slice(0, 8), t.x, t.y + h / 2 + 12);
@@ -272,7 +421,28 @@ needed on the transition record.
 
 ##Full Scene
 
-    function render(r: Renderer, engine: Engine): void {
+The feedback arcs and crossings of a map never change while it is being
+played, so they are worked out once per map and remembered rather than
+recomputed every animation frame.
+
+    const _feedbackCache = new WeakMap<GameNet, Set<string>>();
+    const _crossingCache = new WeakMap<PetriNet, Crossing[]>();
+
+    function cachedFeedback(gn: GameNet): Set<string> {
+      let fb = _feedbackCache.get(gn);
+      if (!fb) { fb = returnArcs(gn.net, gn.playerStarts); _feedbackCache.set(gn, fb); }
+      return fb;
+    }
+
+    function cachedCrossings(net: PetriNet): Crossing[] {
+      let cr = _crossingCache.get(net);
+      if (!cr) { cr = arcCrossings(net); _crossingCache.set(net, cr); }
+      return cr;
+    }
+
+    function render(
+      r: Renderer, engine: Engine, focusId: string | null = null,
+    ): void {
       clearCanvas(r);
       const { state } = engine;
       const net = state.gn.net;
@@ -283,11 +453,27 @@ needed on the transition record.
         engine.phase === 'player' ? playerEnabledTransitions(engine) : []
       );
 
+      const feedback = cachedFeedback(state.gn);
+      const styleOf = (arc: Arc): CorridorStyle => {
+        const adjacent = focusId !== null &&
+          (arc.source === focusId || arc.target === focusId);
+        return {
+          look: feedback.has(arc.id) ? 'return' : 'forward',
+          alpha: focusId === null || adjacent ? 1 : DIM_ALPHA,
+          accent: adjacent,
+          muted: enabledIds.has(arc.source) || enabledIds.has(arc.target),
+        };
+      };
+      const posOf = (id: string) => net.places.get(id) ?? net.transitions.get(id);
+
       // Draw corridors first (behind everything)
       for (const arc of net.arcs) {
-        const src = net.places.get(arc.source) ?? net.transitions.get(arc.source);
-        const tgt = net.places.get(arc.target) ?? net.transitions.get(arc.target);
-        if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y);
+        const src = posOf(arc.source), tgt = posOf(arc.target);
+        if (src && tgt) drawCorridor(ctx, src.x, src.y, tgt.x, tgt.y, styleOf(arc));
+      }
+      for (const c of cachedCrossings(net)) {
+        const a = posOf(c.b.source), b = posOf(c.b.target);
+        if (a && b) drawBridge(ctx, a.x, a.y, b.x, b.y, c.x, c.y, styleOf(c.b));
       }
 
       // Transitions
@@ -305,6 +491,23 @@ needed on the transition record.
           tokenCount(state.ghosts, p.id),
           nodeRadius,
         );
+      }
+
+      // The places a focused doorway reads from and writes to get a ring.
+      if (focusId !== null) {
+        ctx.save();
+        ctx.strokeStyle = '#ffe000';
+        ctx.globalAlpha = 0.75;
+        ctx.lineWidth = 2;
+        for (const arc of net.arcs) {
+          if (arc.source !== focusId && arc.target !== focusId) continue;
+          const other = posOf(arc.source === focusId ? arc.target : arc.source);
+          if (!other) continue;
+          ctx.beginPath();
+          ctx.arc(other.x, other.y, nodeRadius + 6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
       }
 
       // A ghost catching a chomper flashes the spot briefly.
@@ -364,3 +567,4 @@ needed on the transition record.
     #Game Map
     #Game State
     #Game Engine
+    #Render Layout
