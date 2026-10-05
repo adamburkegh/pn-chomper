@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The `inject-bundle.ts` build hook now copes with being run by another
+  project's build: a build that has no main module is skipped with a message
+  and exit 0 instead of failing the hook, and `docs/index.html` is only
+  refreshed by the project's own build into `dist/`, not by a build sent
+  elsewhere with `--output`.
+
 ## 0.8.0 - 2026-10-03
 
 - **Mandala map**: a new built-in map that teaches splitting as a cascade.

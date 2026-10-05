@@ -7,6 +7,10 @@
  *
  * Usage (called automatically by `notlob build`):
  *   tsx inject-bundle.ts <manifest-path>
+ *
+ * It is meant for a build of the whole project. A build that does not
+ * include the main artifact is skipped with exit 0, and docs/index.html is
+ * only refreshed when the output directory is the project's own dist/.
  */
 
 import * as fs from 'fs';
@@ -31,10 +35,11 @@ async function main(): Promise<void> {
     entryPoints.find((p: string) => path.basename(p).includes('main')) ??
     artifacts.find((p: string) => path.basename(p).includes('main'));
 
+  // A build of some other module (a single-file build asked for by a
+  // caller, say) has no game to bundle. That is not a failure, so say so
+  // and stop quietly instead of failing the hook.
   if (!mainArtifact) {
-    console.error('inject-bundle: cannot locate main artifact in manifest');
-    console.error(JSON.stringify(manifest, null, 2));
-    process.exit(1);
+    console.log('inject-bundle: no main artifact in this build, nothing to bundle');
     return;
   }
 
@@ -101,11 +106,18 @@ async function main(): Promise<void> {
   fs.writeFileSync(outHtml, injected, 'utf8');
   console.log(`inject-bundle: wrote ${path.relative(projectRoot, outHtml)}`);
 
-  const docsDir  = path.join(projectRoot, 'docs');
-  const docsHtml = path.join(docsDir, 'index.html');
-  fs.mkdirSync(docsDir, { recursive: true });
-  fs.copyFileSync(outHtml, docsHtml);
-  console.log(`inject-bundle: copied to ${path.relative(projectRoot, docsHtml)}`);
+  // docs/index.html is the committed distribution copy, so only the
+  // project's own build into dist/ may refresh it. A build sent somewhere
+  // else with --output must not rewrite a tracked file.
+  const isProjectBuild =
+    path.resolve(outputDir) === path.resolve(projectRoot, 'dist');
+  if (isProjectBuild) {
+    const docsDir  = path.join(projectRoot, 'docs');
+    const docsHtml = path.join(docsDir, 'index.html');
+    fs.mkdirSync(docsDir, { recursive: true });
+    fs.copyFileSync(outHtml, docsHtml);
+    console.log(`inject-bundle: copied to ${path.relative(projectRoot, docsHtml)}`);
+  }
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
