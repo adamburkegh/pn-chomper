@@ -62,3 +62,7 @@ A copy is also placed in `docs/` for easy distribution from github.
 ## Host
 
 The file `index.html` can be hosted as a self-contained static file.
+
+# Credits
+
+This project used a copy-paste fork of the [YAPNE project](https://github.com/chimenkamp/YAPNE-Yet-Another-Petri-Net-Editor) for the starting data structures and visualisation.
