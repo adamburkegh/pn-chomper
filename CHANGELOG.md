@@ -9,6 +9,18 @@
   and exit 0 instead of failing the hook, and `docs/index.html` is only
   refreshed by the project's own build into `dist/`, not by a build sent
   elsewhere with `--output`.
+- A chomper eaten by a ghost on the last dot no longer triggers
+  "YOU WIN". Collision resolution now runs before dot collection in
+  `playerMove`, so a chomper eaten by a ghost does not get to collect the
+  dot it stepped on. Thanks to Felix Pham for the bug report.
+
+### Development
+
+- `game/engine.lob`: test-only helper functions moved from the body to
+  `#Appendix Test Helpers`, keeping the module narrative clear of
+  test scaffolding.
+- Property-based test (`~property`) added to `##Player Move` verifying the
+  collision-beats-win invariant across maps and fork arms using fast-check.
 
 ## 0.8.0 - 2026-10-03
 
