@@ -118,7 +118,7 @@
     Eat all the dots · Avoid the ghosts<br>
     Esc — menu
   </div>
-  <div id="version">v0.8.0</div>
+  <div id="version">v0.8.1</div>
   <div id="map-name"></div>
   <div id="life-lost">Life lost ...</div>
   <div id="deadlock">Deadlock ...</div>
@@ -621,7 +621,6 @@
     if (!net.transitions.has(transitionId)) return;
     if (!isEnabled(net, state.chompers, transitionId)) return;
     state.chompers = fire(net, state.chompers, transitionId);
-    eatDots(state);
     const livesBefore = state.lives;
     const eaten = resolveCollisions(state);
     if (eaten.length > 0) engine.eaten = { places: eaten, at: Date.now() };
@@ -633,6 +632,7 @@
       engine.phase = "player";
       return;
     }
+    eatDots(state);
     if (isWon(state)) {
       engine.phase = "won";
       return;

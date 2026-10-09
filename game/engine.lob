@@ -51,8 +51,11 @@ that strands the last chomper with nothing left to fire.
 
 The player chooses a transition id. The engine validates that it is enabled
 and that it has at least one chomper token in an input place, then fires it.
-After firing, dots are eaten and collisions checked. If a chomper was eaten,
-engine.eaten records where and when, so the renderer can flash the spot.
+After firing, collisions are resolved first, then dots are eaten. This order
+matters: a chomper eaten by a ghost does not get to collect the dot it stepped
+on, and if the eaten chomper happened to be on the last dot, the game is not
+won. If a chomper was eaten, engine.eaten records where and when so the
+renderer can flash the spot.
 
     function playerMove(engine: Engine, transitionId: string): void {
       if (engine.phase !== 'player') return;
@@ -63,7 +66,6 @@ engine.eaten records where and when, so the renderer can flash the spot.
       if (!isEnabled(net, state.chompers, transitionId)) return;
 
       state.chompers = fire(net, state.chompers, transitionId);
-      eatDots(state);
 
       const livesBefore = state.lives;
       const eaten = resolveCollisions(state);
@@ -71,10 +73,60 @@ engine.eaten records where and when, so the renderer can flash the spot.
       if (isLost(state)) { engine.phase = 'lost'; return; }
       if (state.lives < livesBefore) { engine.phase = 'player'; return; }
 
+      eatDots(state);
       if (isWon(state)) { engine.phase = 'won'; return; }
       if (isDeadlocked(state)) { applyDeadlock(engine); return; }
       engine.phase = 'ghost';
     }
+
+Ghost collision takes priority over the win condition. A chomper eaten on
+the last dot does not collect it — only surviving chompers' positions count.
+The property holds structurally: for any map with a fork transition, placing
+a ghost and the last dot at one of its output places, the eaten chomper does
+not collect the dot regardless of which output arm or which map is used.
+
+~property
+    fc.assert(fc.property(
+      fc.constantFrom(makeCircuitMap(), makeSplitMap()),
+      fc.boolean(),
+      (gn, pickLast) => {
+        const forkTid = [...gn.net.transitions.keys()].find(
+          tid => outputArcs(gn.net, tid).length >= 2
+        );
+        if (!forkTid) return true;
+        const outputs = outputArcs(gn.net, forkTid).map(a => a.target);
+        const forkInput = [...gn.net.arcs.values()]
+          .find(a => a.target === forkTid)?.source;
+        if (!forkInput || outputs.length < 2) return true;
+        const ghostPlace = pickLast ? outputs[outputs.length - 1] : outputs[0];
+        const eng = makeEngine(gn);
+        eng.state.chompers = emptyMarking();
+        markingAddTokens(eng.state.chompers, forkInput, 1);
+        eng.state.dots.clear();
+        eng.state.dots.add(ghostPlace);
+        eng.state.ghosts = emptyMarking();
+        markingAddTokens(eng.state.ghosts, ghostPlace, 1);
+        playerMove(eng, forkTid);
+        return !isWon(eng.state);
+      }
+    ))
+
+With the ghost at nw, the nw chomper is eaten while ne survives — the game
+continues rather than ending in a win, and nw is recorded as the eaten place.
+
+    const _afterCollisionAtNw = (() => {
+      const eng = makeEngine(makeCircuitMap());
+      eng.state.dots.clear();
+      eng.state.dots.add('nw');
+      eng.state.ghosts = emptyMarking();
+      markingAddTokens(eng.state.ghosts, 'nw', 1);
+      playerMove(eng, 't_fork');
+      return eng;
+    })();
+
+~example
+    _afterCollisionAtNw.phase === 'ghost'
+    (_afterCollisionAtNw.eaten?.places ?? []).includes('nw')
 
 ##Ghost Turn
 
@@ -111,19 +163,51 @@ playthroughs without the real game ever needing to know that's possible.
       engine.phase = 'player';
     }
 
-The claim below pins the one-fire-per-turn behaviour down as a runnable
-fact rather than just prose: two ghost tokens, each with its own distinct
-enabled transition, so a per-token implementation would move both and a
-one-fire implementation moves exactly one. If this ever starts failing,
-the firing rule changed and the prose above needs rewriting to match —
+
+##Enabled Player Transitions
+
+The UI needs to know which transitions the player can currently choose. A
+transition is choosable when it is enabled in the chomper marking.
+
+    function playerEnabledTransitions(engine: Engine): string[] {
+      return enabledTransitions(engine.state.gn.net, engine.state.chompers);
+    }
+
+After a complete player-and-ghost cycle on the circuit map, the fork has
+fired, a chomper is in the nw arm, and it is the player's turn again.
+
+    function _engineOneCycle(): { phase: Phase; chomperAtNw: boolean } {
+      const eng = makeEngine(makeCircuitMap());
+      // Fire 't_fork' — ghost is at 'east', so no collision
+      playerMove(eng, 't_fork');
+      ghostTurn(eng);
+      return {
+        phase: eng.phase,
+        chomperAtNw: tokenCount(eng.state.chompers, 'nw') > 0,
+      };
+    }
+
+~example
+    _engineOneCycle().phase === 'player'
+    _engineOneCycle().chomperAtNw
+
+---
+
+#Appendix Test Helpers
+
+##Ghost Turn Once
+
+Two ghost tokens on distinct tracks — if firing were per-token, both
+would move; the one-fire rule moves exactly one. If this ever fails,
+the firing rule changed and ##Ghost Turn needs rewriting to match —
 that coupling is the point.
 
     function _testGhostTurnFiresOnce(): boolean {
       const net = makeNet();
-      // 'start' is where the chomper sits — kept apart from a/b/x/y so it
-      // can never collide with a ghost token, and given its own harmless
-      // transition so the chomper marking is never deadlocked (which
-      // would reset the ghost marking we're trying to observe here).
+      // 'start' keeps the chomper apart from a/b/x/y so it can never
+      // collide with a ghost, and has its own transition so the chomper
+      // marking is never deadlocked (which would reset the ghost marking
+      // we're trying to observe).
       addPlace(net, 'start', 'Start', -100, 0);
       addPlace(net, 'home', 'Home', -100, 100);
       addTransition(net, 'tstart', 'TStart', -100, 50);
@@ -141,7 +225,9 @@ that coupling is the point.
       addArc(net, 'i2', 'b', 'tb');
       addArc(net, 'o2', 'tb', 'y');
 
-      const eng = makeEngine({ net, playerStarts: ['start'], ghostSpawns: [] });
+      const eng = makeEngine(
+        { net, playerStarts: ['start'], ghostSpawns: [] }
+      );
       eng.phase = 'ghost';
       eng.state.ghosts = emptyMarking();
       markingAddTokens(eng.state.ghosts, 'a', 1);
@@ -151,31 +237,10 @@ that coupling is the point.
 
       const movedA = tokenCount(eng.state.ghosts, 'x') === 1;
       const movedB = tokenCount(eng.state.ghosts, 'y') === 1;
-      return movedA !== movedB;  // exactly one moved — not both, not neither
+      return movedA !== movedB;
     }
 
-##Enabled Player Transitions
-
-The UI needs to know which transitions the player can currently choose. A
-transition is choosable when it is enabled in the chomper marking.
-
-    function playerEnabledTransitions(engine: Engine): string[] {
-      return enabledTransitions(engine.state.gn.net, engine.state.chompers);
-    }
-
-A minimal set of engine examples: start on the circuit map, fire the Fork
-transition, check that chompers appear in both arms.
-
-    function _engineOneCycle(): { phase: Phase; chomperAtNw: boolean } {
-      const eng = makeEngine(makeCircuitMap());
-      // Fire 't_fork' — ghost is at 'east', so no collision
-      playerMove(eng, 't_fork');
-      ghostTurn(eng);
-      return {
-        phase: eng.phase,
-        chomperAtNw: tokenCount(eng.state.chompers, 'nw') > 0,
-      };
-    }
+##Player Move Helpers
 
     function _invalidMoveIgnored(): boolean {
       const eng = makeEngine(makeCircuitMap());
@@ -188,6 +253,8 @@ transition, check that chompers appear in both arms.
       playerMove(eng, 't_fork');
       return eng.phase;
     }
+
+##Deadlock Via Move
 
 A real deadlock reached through an actual move, not just the isDeadlocked
 check in isolation: firing West Sync with only the two west corridors
@@ -208,17 +275,11 @@ filled leaves a lone token at c_w with nothing left to fire.
       };
     }
 
-~example
+#Tests
+
+##engine starts in player phase
     makeEngine(makeCircuitMap()).phase === 'player'
     playerEnabledTransitions(makeEngine(makeCircuitMap())).length === 1
-
-~example
-    _engineOneCycle().phase === 'player'
-    _engineOneCycle().chomperAtNw === true
-
----
-
-#Tests
 
 ##invalid transition is ignored
     _invalidMoveIgnored() === true
@@ -233,6 +294,9 @@ filled leaves a lone token at c_w with nothing left to fire.
 
 ##ghost turn fires exactly one transition, not one per token
     _testGhostTurnFiresOnce()
+
+##collision at last dot does not win
+    !isWon(_afterCollisionAtNw.state)
 
 #References
     #Petri Marking
