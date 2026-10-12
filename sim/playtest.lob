@@ -232,6 +232,54 @@ wrong rather than at bad luck.
       return isWon(engine.state);
     }
 
+##Dots only ever go down
+
+Whatever is played, the dot marking never gains a token: a dot is consumed when
+a chomper arrives and is never put back, not by a ghost turn, not by a life
+lost. That is a statement about whole games, so it is checked on seeded random
+playouts of every built-in map and not on a hand-picked position. The dot
+total is read after the player's move and after every ghost turn.
+
+    function _dotsNeverRise(
+      make: () => GameNet, seed: number, turns: number,
+    ): boolean {
+      const engine = makeEngine(make());
+      const rng = makeRng(seed);
+      let prev = markingTotal(engine.state.dots);
+      const holds = (): boolean => {
+        const now = markingTotal(engine.state.dots);
+        const ok = now <= prev;
+        prev = now;
+        return ok;
+      };
+
+      for (let turn = 0; turn < turns; turn++) {
+        if (isWon(engine.state) || engine.phase === 'lost') return true;
+        const move = randomPolicy(
+          engine.state.gn.net, engine.state.chompers, engine.state.dots, rng,
+        );
+        if (move === null) return true;
+        playerMove(engine, move);
+        if (!holds()) return false;
+        let guard = 0;
+        while (engine.phase === 'ghost' && guard++ < 50) {
+          ghostTurn(engine, rng);
+          if (!holds()) return false;
+        }
+      }
+      return true;
+    }
+
+~property dots_never_increase_over_play
+    fc.assert(fc.property(
+      fc.constantFrom(
+        makeClassicMap, makeSplitMap, makeDiamondMap,
+        makeCircuitMap, makeMandalaMap,
+      ),
+      fc.integer({ min: 1, max: 400 }),
+      (make, seed) => _dotsNeverRise(make, seed, 80),
+    ))
+
 ##Layout report
 
 The report below also prints, for every built-in map, how tangled its drawing

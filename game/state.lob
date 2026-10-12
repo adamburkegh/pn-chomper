@@ -252,6 +252,131 @@ alone: the dot comes back or not, and the chomper and ghost stay or go home.
       };
     }
 
+##Properties of the markings
+
+The examples above fix particular cases. What must hold for any marking is
+stated as properties, over the built-in maps and arbitrary counts.
+
+Two markings are the same when every place holds the same number of tokens,
+whether or not one of them has a zero entry the other lacks:
+
+    function _sameTokens(a: Marking, b: Marking): boolean {
+      const ids = new Set([...a.keys(), ...b.keys()]);
+      return [...ids].every(id => tokenCount(a, id) === tokenCount(b, id));
+    }
+
+    const _propMaps = [makeCircuitMap, makeMandalaMap, makeSplitMap, makeDiamondMap];
+
+A state is built over a map, with dots and chompers placed from an arbitrary
+list of per-place counts, taken in the order the map's places were declared
+and wrapping round when the list is shorter than the places:
+
+    function _stateWith(
+      make: () => GameNet,
+      cells: Array<{ chomper: boolean; dots: number; ghost: boolean }>,
+    ): GameState {
+      const st = initState(make());
+      st.dots = emptyMarking();
+      st.chompers = emptyMarking();
+      st.ghosts = emptyMarking();
+      [...st.gn.net.places.keys()].forEach((id, i) => {
+        const c = cells[i % cells.length];
+        st.dots.set(id, c.dots);                      // zeros kept on purpose
+        if (c.chomper) markingAddTokens(st.chompers, id, 1);
+        if (c.ghost)   markingAddTokens(st.ghosts, id, 1);
+      });
+      return st;
+    }
+
+The generator of those counts is built from fast-check's own constructors,
+which exist only inside a property, so each property passes them in:
+
+    function _cellArb(fcLib: any): any {
+      return fcLib.array(
+        fcLib.record({
+          chomper: fcLib.boolean(),
+          dots:    fcLib.integer({ min: 0, max: 3 }),
+          ghost:   fcLib.boolean(),
+        }),
+        { minLength: 1, maxLength: 14 },
+      );
+    }
+
+Eating conserves dots and pays for them. Whatever the counts, eatDots empties
+exactly the places that hold a chomper, raises the score by ten for each dot
+it took, and touches nothing else:
+
+~property eating_conserves_dots_and_pays_ten_each
+    fc.assert(fc.property(
+      fc.constantFrom(..._propMaps), _cellArb(fc),
+      (make, cells) => {
+        const st = _stateWith(make, cells);
+        const before = new Map(st.dots);
+        const eaten = [...before.entries()]
+          .filter(([id]) => tokenCount(st.chompers, id) > 0)
+          .reduce((n, [, c]) => n + c, 0);
+        eatDots(st);
+        const untouched = [...before.entries()]
+          .filter(([id]) => tokenCount(st.chompers, id) === 0)
+          .every(([id, c]) => tokenCount(st.dots, id) === c);
+        const emptied = [...before.keys()]
+          .filter(id => tokenCount(st.chompers, id) > 0)
+          .every(id => tokenCount(st.dots, id) === 0);
+        return markingTotal(before) === markingTotal(st.dots) + eaten &&
+               st.score === 10 * eaten &&
+               [...st.dots.values()].every(n => n >= 0) &&
+               untouched && emptied;
+      }
+    ))
+
+The game is won exactly when the dot marking holds nothing, including when
+places that were eaten from sit in it at zero:
+
+~property won_iff_no_dots_remain
+    fc.assert(fc.property(
+      fc.constantFrom(..._propMaps), _cellArb(fc),
+      (make, cells) => {
+        const st = _stateWith(make, cells);
+        return isWon(st) === (markingTotal(st.dots) === 0);
+      }
+    ))
+
+A reset deals again exactly the colours the map does not keep, from the map's
+own start markings, and leaves the kept ones as they were. Dealing twice is
+the same as dealing once:
+
+~property reset_deals_what_is_not_kept
+    fc.assert(fc.property(
+      fc.constantFrom(..._propMaps), _cellArb(fc),
+      fc.subarray(['chomper', 'ghost', 'dot'] as ColourName[]),
+      (make, cells, keep) => {
+        const st = _stateWith(make, cells);
+        st.gn = { ...st.gn, keepOnReset: keep };
+        const was = {
+          chomper: new Map(st.chompers), ghost: new Map(st.ghosts),
+          dot: new Map(st.dots),
+        };
+        resetToStart(st);
+        const once = {
+          chomper: new Map(st.chompers), ghost: new Map(st.ghosts),
+          dot: new Map(st.dots),
+        };
+        resetToStart(st);
+        const start = {
+          chomper: st.gn.chomperStart, ghost: st.gn.ghostStart,
+          dot: st.gn.dotStart,
+        };
+        const colours: ColourName[] = ['chomper', 'ghost', 'dot'];
+        const dealtRight = colours.every(c =>
+          _sameTokens(once[c], keep.includes(c) ? was[c] : start[c]));
+        const idempotent =
+          _sameTokens(once.chomper, st.chompers) &&
+          _sameTokens(once.ghost, st.ghosts) &&
+          _sameTokens(once.dot, st.dots);
+        return dealtRight && idempotent;
+      }
+    ))
+
 ~example
     tokenCount(_s0.chompers, 'depot') === 1
     !isDeadlocked(_s0)

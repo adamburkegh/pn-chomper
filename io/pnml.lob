@@ -470,6 +470,42 @@ assembly without a browser.
       }
     ))
 
+What a file says about each place must agree with the map it was written from.
+For every built-in map, the chomper, ghost and dot counts a place's block
+carries (the initialMarking, the ghost tokens element if there is one, and
+the dot tokens element, which means one dot when it is absent) are the counts
+in the map's three start markings:
+
+    function _placeBlock(xml: string, id: string): string {
+      const start = xml.indexOf(`<place id="${id}">`);
+      return xml.slice(start, xml.indexOf('</place>', start));
+    }
+
+    function _countIn(block: string, colour: string, absent: number): number {
+      const m = block.match(new RegExp(`<tokens colour="${colour}">(\\d+)</tokens>`));
+      return m ? parseInt(m[1], 10) : absent;
+    }
+
+~property export_agrees_with_the_start_markings
+    fc.assert(fc.property(
+      fc.constantFrom(
+        makeClassicMap, makeSplitMap, makeDiamondMap,
+        makeCircuitMap, makeMandalaMap, makeGridMap,
+      ),
+      (make) => {
+        const gn = make();
+        const xml = exportPNML(gn, 'agree');
+        return [...gn.net.places.keys()].every(id => {
+          const block = _placeBlock(xml, id);
+          const chomper = parseInt(
+            (block.match(/<initialMarking><text>(\d+)<\/text>/) ?? [])[1] ?? '0', 10);
+          return chomper === tokenCount(gn.chomperStart, id) &&
+                 _countIn(block, 'ghost', 0) === tokenCount(gn.ghostStart, id) &&
+                 _countIn(block, 'dot', 1) === tokenCount(gn.dotStart, id);
+        });
+      }
+    ))
+
 ~example
     exportPNML(makeSplitMap(), 'Split').includes('<pnml')
     exportPNML(makeSplitMap(), 'Split').includes('playerStart')
