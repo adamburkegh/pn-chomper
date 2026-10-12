@@ -4,22 +4,25 @@
 
 ### Changed
 
-- **Ghosts start on a place, not a transition**: a ghost now begins on a place
-  marked `<ghostStart/>`, the same way the chomper begins on a place marked
-  `<playerStart/>`; a count, as in `<ghostStart>3</ghostStart>`, starts that
-  many ghosts there. This is a breaking change to the PNML format: a map that
-  marks a transition with `<ghostSpawn/>` is no longer read and loads with no
-  ghosts, and exported maps now carry `<ghostStart/>` on places. The built-in
-  maps behave as before, since each ghost starts where its spawn transition
-  used to put it. Mandala's tail loses one handle place so the ghost can begin
-  in the Den and still be five hops from Hub.
-- **Dots are a count per place**: like chompers and ghosts, the dots to eat
-  are a marking over the net. A place can hold more than one, shown with a
-  small number beside the pellet, and eating them scores ten each. In PNML
-  `<dots>n</dots>` replaces `<hasDot>false</hasDot>`: `<dots>0</dots>`
-  suppresses the dot and a place with no element has one. This is a breaking
-  change to the PNML format: `hasDot` is no longer read, so a map that used it
-  loads with a dot on every place.
+- **Everything is a marking**: the chompers, the ghosts and the dots are each
+  a count of tokens per place over the one net, differing only in the rule
+  that changes them. A ghost begins on a place carrying a token of colour
+  `ghost`, the same way the chomper begins on a place, and a place can hold
+  more than one dot, shown with a small number beside the pellet, each
+  scoring ten when eaten. The built-in maps behave as before, since each
+  ghost starts where its spawn transition used to put it. Mandala's tail
+  loses one handle place so the ghost can begin in the Den and still be five
+  hops from Hub.
+- **PNML tokens and colour declarations**: ghosts and dots are written as
+  `<tokens colour="ghost">n</tokens>` and `<tokens colour="dot">n</tokens>` on
+  the place, with a bare element meaning one. A net may declare its colours
+  once in a `<colours>` element, giving each a `default` count and whether a
+  life lost deals it again (`reset="restore"`) or leaves it (`reset="keep"`);
+  with none declared the built-in colours apply, so ordinary maps need
+  nothing. A colour the game has no rules for is reported and ignored. This
+  is a breaking change to the PNML format: `<ghostSpawn/>` on a transition,
+  `<ghostStart/>`, `<dots>` and `<hasDot>` are no longer read, so a map using
+  them loads with no ghosts and a dot on every place.
 
 ### Fixed
 

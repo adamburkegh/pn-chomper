@@ -9,28 +9,50 @@ The map is a Petri net and the player controls the token. It's intended as casua
 
 Any PNML file can be loaded as a map. To make it a chomper-style puzzle, you will need to edit the PNML source to add ghosts, and specify a chomper start point if there is no initial marking.
 
+## Tokens
+
+A map has three kinds of token, each a count on a place: the chompers, the ghosts and the dots. In PNML each is written as a count on the place that holds it.
+
+## Chomper Start
+
+The chomper is the net's own initial marking. Mark exactly one place with `<playerStart/>`, or give multiple places `<initialMarking><text>n</text></initialMarking>` where n is the exact number of tokens in that place.
+
 ## Ghosts
 
-A ghost starts on any place carrying a tool-specific `<ghostStart/>` block, just as the chomper starts on a place. Mark several places for several ghosts, or put a count in the element to start several ghosts on one place: `<ghostStart>3</ghostStart>`.
+A ghost starts on any place with a `tokens` element for the colour `ghost` in its tool-specific block. A bare element is one ghost, and a number is that many.
 
 ```xml
 <place id="p_den">
   <name><text>Den</text></name>
   <toolspecific tool="pn-chomper" version="1.0">
-    <ghostStart/>
+    <tokens colour="ghost">1</tokens>
   </toolspecific>
 </place>
 ```
 
-Earlier versions marked a transition with `<ghostSpawn/>` instead. That form is no longer read.
+## Dots
 
-## Chomper Start
+By default, each place has one dot. A `tokens` element for the colour `dot` changes that: `0` removes the dot and `3` puts three dots there. Eating a place's dots scores ten for each.
 
-Mark exactly one place with `<playerStart/>` or multiple places with `<initialMarking><text>n</text></initialMarking>` where n is the exact number of tokens in that place.
+```xml
+<tokens colour="dot">0</tokens>
+```
 
-## Suppressing Dots
+## Declaring colours
 
-By default, each place has one dot. Put a count in a `<dots>` element in the place's tool-specific block to change that: `<dots>0</dots>` removes the dot, and `<dots>3</dots>` puts three dots there. Eating a place's dots scores ten for each.
+Normally nothing needs declaring. The three colours have built-in defaults: the dot has a default of one per place and is kept when a life is lost, and the chomper and the ghost have a default of none and are put back at their start. A map that wants something different says so once, in the net's tool-specific block:
+
+```xml
+<toolspecific tool="pn-chomper" version="1.0">
+  <colours>
+    <colour name="chomper" marking="initial"/>
+    <colour name="ghost"/>
+    <colour name="dot" default="0" reset="restore"/>
+  </colours>
+</toolspecific>
+```
+
+`default` is the count on every place that has no `tokens` element for the colour. `reset` is `keep` to leave the colour alone when a life is lost, or `restore` to deal it again from the start. An attribute left out means the built-in value. A colour the game has no rules for is reported in the browser console and ignored.
 
 ## Sharing Maps
 

@@ -1,21 +1,22 @@
 #Game State
 
-The game state holds everything that changes during play: where the chompers
-are (the player marking), where the ghosts are (the ghost marking), where the
-dots still are (the dot marking), the score, and the number of lives remaining.
+Everything in the game that moves, or is eaten, is a marking of the one net:
+where the chompers are, where the ghosts are, and where the dots still are.
+The game state is those three markings, the score, and the number of lives
+remaining. There is no other kind of thing in it; a chomper is not an object
+with a position, it is a token count on a place.
 
-Chompers, ghosts and dots are all Petri net tokens over the one net, tracked in
-separate markings. They differ in what changes them: a chomper moves when the
-player fires a transition, a ghost when a ghost turn does, and a dot never
-moves at all — it is consumed when a chomper arrives and is not put back when
-a life is lost. Keeping them apart keeps the net semantics clean — each
-population fires independently — and makes it easy to check collisions (a
-place where a chomper and ghost both have tokens is a collision).
+The three differ only in the rule that changes them. A chomper marking changes
+when the player fires a transition, a ghost marking when a ghost turn does, and
+a dot marking never moves a token at all: a dot is consumed when a chomper is
+in its place, and is not put back when a life is lost. Keeping them as
+separate markings keeps the net semantics clean — each population fires
+independently — and makes collisions easy to see, since a place where a
+chomper marking and a ghost marking both have tokens is a collision.
 
-A map may declare multiple playerStarts in its #Game Map definition, placing
-one chomper token at each start place when the game initialises. All start tokens are also
-restored on a life reset. Single-start maps are the common case; multi-start
-maps expose fork-join coordination from the very first move.
+A map's chomper start may hold tokens on several places, or several on one,
+and all of them are restored on a life reset. A single token is the common
+case; several expose fork-join coordination from the very first move.
 
     interface GameState {
       gn: GameNet;
@@ -26,38 +27,29 @@ maps expose fork-join coordination from the very first move.
       lives: number;
     }
 
-Chompers start as a mark on a place: playerStarts, with a count from
-startMarkings. Ghosts and dots start as the ghostStart and dotStart markings.
-Dealing chompers and ghosts is shared between the initial deal and a
-post-death reset, so both read the exact same start rules from the #Game Map;
-dots are dealt once, since a reset does not restore them.
+Each of the three starts as a copy of the map's marking for it: chomperStart,
+ghostStart and dotStart from the #Game Map. On a post-death reset the chompers
+and the ghosts are dealt again from the same markings, and the dots are not,
+unless the map's keepOnReset says otherwise: it names the colours a reset
+leaves alone, and by default that is the dots alone.
 
     function spawnChompers(gn: GameNet): Marking {
-      const chompers = emptyMarking();
-      for (const startId of gn.playerStarts) {
-        markingAddTokens(chompers, startId, gn.startMarkings?.get(startId) ?? 1);
-      }
-      return chompers;
+      return new Map(gn.chomperStart);
     }
 
     function spawnGhosts(gn: GameNet): Marking {
-      const ghosts = emptyMarking();
-      for (const [placeId, count] of gn.ghostStart) {
-        markingAddTokens(ghosts, placeId, count);
-      }
-      return ghosts;
+      return new Map(gn.ghostStart);
     }
 
     function initState(gn: GameNet, lives = 3): GameState {
-      const chompers = spawnChompers(gn);
-      const ghosts = spawnGhosts(gn);
-
-      const dots = emptyMarking();
-      for (const [placeId, count] of gn.dotStart) {
-        markingAddTokens(dots, placeId, count);
-      }
-
-      return { gn, chompers, ghosts, dots, score: 0, lives };
+      return {
+        gn,
+        chompers: spawnChompers(gn),
+        ghosts: spawnGhosts(gn),
+        dots: new Map(gn.dotStart),
+        score: 0,
+        lives,
+      };
     }
 
 ##Dot Eating and Scoring
@@ -78,11 +70,12 @@ transition — the arrival place is checked after each fire.
 
 ##Collision Detection
 
-Chompers and ghosts are two token colours in the same net — a coloured Petri
-net in all but name. A collision occurs when they share a place. Rather than
-a global reset, the ghost consumes exactly one chomper token from each shared
-place. Only when no chomper tokens remain does the player lose a life and all
-tokens reset to starting positions.
+Chompers, ghosts and dots are three token colours in the same net — a coloured
+Petri net in all but name. A collision is the chomper and ghost colours
+sharing a place. Rather than a global reset, the ghost consumes exactly one
+chomper token from each shared place. Only when no chomper tokens remain does
+the player lose a life, and the markings the map does not keep are dealt
+again — by default the chompers and ghosts, not the dots.
 
 This makes splitting tactically meaningful: two chompers grant resilience, as
 a ghost can only eat one per encounter. It also keeps the token semantics
@@ -104,9 +97,15 @@ or the net you're standing on simply has nothing left to fire.
       return false;
     }
 
+    function keptOnReset(gn: GameNet): ColourName[] {
+      return gn.keepOnReset ?? ['dot'];
+    }
+
     function resetToStart(state: GameState): void {
-      state.chompers = spawnChompers(state.gn);
-      state.ghosts = spawnGhosts(state.gn);
+      const keep = keptOnReset(state.gn);
+      if (!keep.includes('chomper')) state.chompers = spawnChompers(state.gn);
+      if (!keep.includes('ghost'))   state.ghosts = spawnGhosts(state.gn);
+      if (!keep.includes('dot'))     state.dots = new Map(state.gn.dotStart);
     }
 
     function loseLife(state: GameState): void {
@@ -231,6 +230,28 @@ own, unlike the corridor places.
       };
     }
 
+A reset after one dot has been eaten and both the chomper and the ghost have
+wandered off, to see which of the three markings a map's keepOnReset leaves
+alone: the dot comes back or not, and the chomper and ghost stay or go home.
+
+    function _resetOutcome(keep?: ColourName[]): {
+      dotBack: boolean; chomperHome: boolean; ghostHome: boolean;
+    } {
+      const gn: GameNet = { ...makeCircuitMap(), keepOnReset: keep };
+      const st = initState(gn);
+      st.dots.set('nw', 0);
+      st.chompers = emptyMarking();
+      markingAddTokens(st.chompers, 'nw', 1);
+      st.ghosts = emptyMarking();
+      markingAddTokens(st.ghosts, 'nn', 1);
+      resetToStart(st);
+      return {
+        dotBack:     tokenCount(st.dots, 'nw') === 1,
+        chomperHome: tokenCount(st.chompers, 'depot') === 1,
+        ghostHome:   tokenCount(st.ghosts, 'east') === 1,
+      };
+    }
+
 ~example
     tokenCount(_s0.chompers, 'depot') === 1
     !isDeadlocked(_s0)
@@ -273,6 +294,19 @@ own, unlike the corridor places.
 ##deadlock recovery loses a life and resets to start
     _testDeadlockRecovery().livesLost
     _testDeadlockRecovery().resetToStart
+
+##by default a reset keeps the dots and deals the chompers and ghosts again
+    !_resetOutcome().dotBack
+    _resetOutcome().chomperHome
+    _resetOutcome().ghostHome
+
+##a map that keeps nothing gets its dots back too
+    _resetOutcome([]).dotBack
+    _resetOutcome([]).chomperHome
+
+##a map can keep the ghosts where they were
+    !_resetOutcome(['dot', 'ghost']).ghostHome
+    _resetOutcome(['dot', 'ghost']).chomperHome
 
 #References
     #Petri Marking

@@ -475,7 +475,7 @@ one smooth curve instead of an S.
 
     function cachedFeedback(gn: GameNet): Set<string> {
       let fb = _feedbackCache.get(gn);
-      if (!fb) { fb = returnArcs(gn.net, gn.playerStarts); _feedbackCache.set(gn, fb); }
+      if (!fb) { fb = returnArcs(gn.net, markedPlaces(gn.chomperStart)); _feedbackCache.set(gn, fb); }
       return fb;
     }
 

@@ -36,7 +36,7 @@ interesting state, a trial can be seeded to start from exactly there.
 ##Player Policies
 
 A policy only ever sees the current net, the current chomper marking, and
-which dots remain — never anything about which map it's on — so the same
+the dot marking — never anything about which map it's on — so the same
 two policies run unmodified against any GameNet.
 
 randomPolicy picks uniformly among whatever's currently enabled, the same
@@ -255,7 +255,7 @@ at zero for Circuit and Mandala.
       console.log(name, 'arcs', gn.net.arcs.length,
         'crossings', countCrossings(gn.net),
         'solid', countCrossings(gn.net, underpassArcIds(gn)),
-        'feedback', [...feedbackArcs(gn.net, gn.playerStarts)].join(','));
+        'feedback', [...feedbackArcs(gn.net, markedPlaces(gn.chomperStart))].join(','));
       for (const v of _clearanceViolations(gn)) console.log('    clearance:', v);
       for (const c of arcCrossings(gn.net)) {
         console.log('   ', c.a.id, c.a.source + '>' + c.a.target,

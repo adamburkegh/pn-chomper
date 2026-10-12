@@ -246,6 +246,9 @@
     for (const n of m.values()) total += n;
     return total;
   }
+  function markedPlaces(m) {
+    return [...m.entries()].filter(([, n]) => n > 0).map(([id]) => id);
+  }
   function isEnabled(net, marking, transitionId) {
     return inputArcs(net, transitionId).every(
       (arc) => tokenCount(marking, arc.source) >= arc.weight
@@ -273,7 +276,7 @@
       gn.net.arcs.filter((a) => marked.has(a.source) || marked.has(a.target)).map((a) => a.id)
     );
   }
-  function ghostsOn(...placeIds) {
+  function startingOn(...placeIds) {
     const m = emptyMarking();
     for (const id of placeIds) markingAddTokens(m, id, 1);
     return m;
@@ -326,9 +329,9 @@
     addArc(net, "a16", "brs", "c");
     return {
       net,
-      ghostStart: ghostsOn("tm"),
-      dotStart: dotsOf(net),
-      playerStarts: ["c"]
+      chomperStart: startingOn("c"),
+      ghostStart: startingOn("tm"),
+      dotStart: dotsOf(net)
     };
   }
   function makeSplitMap() {
@@ -360,9 +363,9 @@
     addArc(net, "b13", "t_rst_l", "start");
     return {
       net,
-      ghostStart: ghostsOn("fin_up"),
-      dotStart: dotsOf(net),
-      playerStarts: ["start"]
+      chomperStart: startingOn("start"),
+      ghostStart: startingOn("fin_up"),
+      dotStart: dotsOf(net)
     };
   }
   function makeDiamondMap() {
@@ -406,9 +409,9 @@
     addArc(net, "d20", "t_rst", "start");
     return {
       net,
-      ghostStart: ghostsOn("fin"),
-      dotStart: dotsOf(net),
-      playerStarts: ["start"]
+      chomperStart: startingOn("start"),
+      ghostStart: startingOn("fin"),
+      dotStart: dotsOf(net)
     };
   }
   function makeCircuitMap() {
@@ -456,9 +459,9 @@
     addArc(net, "c22", "t_mid_dep", "depot");
     return {
       net,
-      ghostStart: ghostsOn("east"),
+      chomperStart: startingOn("depot"),
+      ghostStart: startingOn("east"),
       dotStart: dotsOf(net),
-      playerStarts: ["depot"],
       underpass: ["t_ne_mid", "t_se_mid", "t_mid_dep", "t_rst"]
     };
   }
@@ -551,9 +554,9 @@
     addArc(net, "m48", "t_h1_mid", "mid");
     return {
       net,
-      ghostStart: ghostsOn("den"),
+      chomperStart: startingOn("hub"),
+      ghostStart: startingOn("den"),
       dotStart: dotsOf(net),
-      playerStarts: ["hub"],
       underpass: [
         "t_nwc_esc",
         "t_swc_esc",
@@ -569,27 +572,20 @@
     };
   }
   function spawnChompers(gn) {
-    const chompers = emptyMarking();
-    for (const startId of gn.playerStarts) {
-      markingAddTokens(chompers, startId, gn.startMarkings?.get(startId) ?? 1);
-    }
-    return chompers;
+    return new Map(gn.chomperStart);
   }
   function spawnGhosts(gn) {
-    const ghosts = emptyMarking();
-    for (const [placeId, count] of gn.ghostStart) {
-      markingAddTokens(ghosts, placeId, count);
-    }
-    return ghosts;
+    return new Map(gn.ghostStart);
   }
   function initState(gn, lives = 3) {
-    const chompers = spawnChompers(gn);
-    const ghosts = spawnGhosts(gn);
-    const dots = emptyMarking();
-    for (const [placeId, count] of gn.dotStart) {
-      markingAddTokens(dots, placeId, count);
-    }
-    return { gn, chompers, ghosts, dots, score: 0, lives };
+    return {
+      gn,
+      chompers: spawnChompers(gn),
+      ghosts: spawnGhosts(gn),
+      dots: new Map(gn.dotStart),
+      score: 0,
+      lives
+    };
   }
   function eatDots(state) {
     for (const [placeId, count] of state.chompers) {
@@ -600,9 +596,14 @@
       }
     }
   }
+  function keptOnReset(gn) {
+    return gn.keepOnReset ?? ["dot"];
+  }
   function resetToStart(state) {
-    state.chompers = spawnChompers(state.gn);
-    state.ghosts = spawnGhosts(state.gn);
+    const keep = keptOnReset(state.gn);
+    if (!keep.includes("chomper")) state.chompers = spawnChompers(state.gn);
+    if (!keep.includes("ghost")) state.ghosts = spawnGhosts(state.gn);
+    if (!keep.includes("dot")) state.dots = new Map(state.gn.dotStart);
   }
   function loseLife(state) {
     state.lives -= 1;
@@ -1005,7 +1006,7 @@
   function cachedFeedback(gn) {
     let fb = _feedbackCache.get(gn);
     if (!fb) {
-      fb = returnArcs(gn.net, gn.playerStarts);
+      fb = returnArcs(gn.net, markedPlaces(gn.chomperStart));
       _feedbackCache.set(gn, fb);
     }
     return fb;
@@ -1155,6 +1156,47 @@
       ctx.fillText(endmsg, r.canvas.width / 2, r.canvas.height / 2 + 62);
     }
   }
+  const COLOURS = ["chomper", "ghost", "dot"];
+  const DEFAULT_KEEP = ["dot"];
+  const BUILT_IN_DEFAULTS = { chomper: 0, ghost: 0, dot: 1 };
+  function resolveColours(declared) {
+    const defaults = { ...BUILT_IN_DEFAULTS };
+    const keep = new Set(DEFAULT_KEEP);
+    const warnings = [];
+    for (const d of declared) {
+      const name = COLOURS.find((c) => c === d.name);
+      if (!name) {
+        warnings.push(`colour '${d.name}' is not one the game has rules for; ignored`);
+        continue;
+      }
+      if (d.default !== void 0) {
+        if (!Number.isInteger(d.default) || d.default < 0) {
+          warnings.push(`colour '${name}': default must be a whole number, not ${d.default}`);
+        } else if (name === "chomper" && d.default !== 0) {
+          warnings.push(`colour 'chomper': a default other than none is not supported; ignored`);
+        } else {
+          defaults[name] = d.default;
+        }
+      }
+      if (d.marking !== void 0 && !(name === "chomper" && d.marking === "initial")) {
+        warnings.push(`colour '${name}': marking '${d.marking}' is not supported; ignored`);
+      }
+      if (d.reset === "keep") keep.add(name);
+      else if (d.reset === "restore") keep.delete(name);
+      else if (d.reset !== void 0) {
+        warnings.push(`colour '${name}': reset must be keep or restore, not '${d.reset}'`);
+      }
+    }
+    return {
+      defaults,
+      keepOnReset: COLOURS.filter((c) => keep.has(c)),
+      warnings
+    };
+  }
+  function countFromText(text) {
+    const n = parseInt(text.trim(), 10);
+    return Number.isNaN(n) ? 1 : Math.max(0, n);
+  }
   function exportPNML(gn, netName) {
     const { net } = gn;
     const lines = [];
@@ -1163,6 +1205,15 @@
     lines.push(`  <net id="pn-chomper" type="http://www.pnml.org/version-2009/grammar/ptnet">`);
     lines.push(`    <name><text>${escXml(netName)}</text></name>`);
     lines.push('    <toolspecific tool="pn-chomper" version="1.0">');
+    const keep = gn.keepOnReset ?? DEFAULT_KEEP;
+    if (keep.join() !== DEFAULT_KEEP.join()) {
+      const reset = (c) => keep.includes(c) ? "keep" : "restore";
+      lines.push("      <colours>");
+      lines.push(`        <colour name="chomper" marking="initial" reset="${reset("chomper")}"/>`);
+      lines.push(`        <colour name="ghost" reset="${reset("ghost")}"/>`);
+      lines.push(`        <colour name="dot" reset="${reset("dot")}"/>`);
+      lines.push("      </colours>");
+    }
     if (gn.nodeRadius !== void 0) {
       lines.push(`      <nodeRadius>${gn.nodeRadius}</nodeRadius>`);
     }
@@ -1172,15 +1223,14 @@
       lines.push(`      <place id="${escXml(p.id)}">`);
       lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
       lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
-      const marking = gn.startMarkings?.get(p.id) ?? (gn.playerStarts.includes(p.id) ? 1 : 0);
+      const marking = tokenCount(gn.chomperStart, p.id);
       lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
       lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
-      if (gn.playerStarts.includes(p.id)) lines.push("          <playerStart/>");
+      if (marking > 0) lines.push("          <playerStart/>");
       const ghosts = tokenCount(gn.ghostStart, p.id);
-      if (ghosts === 1) lines.push("          <ghostStart/>");
-      if (ghosts > 1) lines.push(`          <ghostStart>${ghosts}</ghostStart>`);
+      if (ghosts > 0) lines.push(`          <tokens colour="ghost">${ghosts}</tokens>`);
       const dots = tokenCount(gn.dotStart, p.id);
-      if (dots !== 1) lines.push(`          <dots>${dots}</dots>`);
+      if (dots !== 1) lines.push(`          <tokens colour="dot">${dots}</tokens>`);
       lines.push("        </toolspecific>");
       lines.push("      </place>");
     }
@@ -1203,7 +1253,7 @@
   function escXml(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
-  function buildGameNet(rawPlaces, rawTrans, rawArcs, nodeRadius) {
+  function buildGameNet(rawPlaces, rawTrans, rawArcs, nodeRadius, keepOnReset) {
     const allX = [...rawPlaces, ...rawTrans].map((n) => n.x);
     const allY = [...rawPlaces, ...rawTrans].map((n) => n.y);
     const minX = Math.min(...allX), maxX = Math.max(...allX);
@@ -1234,15 +1284,15 @@
     if (isStartPlaces.length > 0) {
       startEntries = isStartPlaces.map((p) => ({ id: p.id, count: p.marking > 0 ? p.marking : 1 }));
     } else {
-      const markedPlaces = rawPlaces.filter((p) => p.marking > 0);
-      if (markedPlaces.length > 0) {
-        startEntries = markedPlaces.map((p) => ({ id: p.id, count: p.marking }));
+      const withTokens = rawPlaces.filter((p) => p.marking > 0);
+      if (withTokens.length > 0) {
+        startEntries = withTokens.map((p) => ({ id: p.id, count: p.marking }));
       } else {
         startEntries = rawPlaces[0] ? [{ id: rawPlaces[0].id, count: 1 }] : [];
       }
     }
-    const playerStarts = startEntries.map((e) => e.id);
-    const startMarkings = new Map(startEntries.map((e) => [e.id, e.count]));
+    const chomperStart = emptyMarking();
+    for (const e of startEntries) markingAddTokens(chomperStart, e.id, e.count);
     const ghostStart = emptyMarking();
     for (const p of rawPlaces) {
       if ((p.ghostStart ?? 0) > 0) markingAddTokens(ghostStart, p.id, p.ghostStart);
@@ -1250,22 +1300,24 @@
     const dotStart = dotsOf(net);
     return {
       net,
-      playerStarts,
-      startMarkings,
+      chomperStart,
       ghostStart,
       dotStart,
+      ...keepOnReset !== void 0 ? { keepOnReset } : {},
       ...nodeRadius !== void 0 ? { nodeRadius } : {}
     };
   }
-  function ghostCount(el) {
-    if (!el) return 0;
-    const n = parseInt(el.textContent?.trim() ?? "", 10);
-    return n > 0 ? n : 1;
+  function colourCount(ts, colour, dflt) {
+    if (!ts) return dflt;
+    for (const el of ts.querySelectorAll("tokens")) {
+      if (el.getAttribute("colour") === colour)
+        return countFromText(el.textContent ?? "");
+    }
+    return dflt;
   }
-  function dotCount(el) {
-    if (!el) return 1;
-    const n = parseInt(el.textContent?.trim() ?? "", 10);
-    return Number.isNaN(n) || n < 0 ? 1 : n;
+  function numberAttr(el, name) {
+    const v = el.getAttribute(name);
+    return v === null ? void 0 : parseInt(v, 10);
   }
   function importPNML(xmlString) {
     const doc = new DOMParser().parseFromString(xmlString, "application/xml");
@@ -1278,6 +1330,19 @@
       const p = el.querySelector("graphics > position");
       return { x: parseFloat(p?.getAttribute("x") ?? "0"), y: parseFloat(p?.getAttribute("y") ?? "0") };
     }
+    const declared = [];
+    for (const el of doc.querySelectorAll(
+      'net > toolspecific[tool="pn-chomper"] > colours > colour'
+    )) {
+      declared.push({
+        name: el.getAttribute("name") ?? "",
+        default: numberAttr(el, "default"),
+        marking: el.getAttribute("marking") ?? void 0,
+        reset: el.getAttribute("reset") ?? void 0
+      });
+    }
+    const rules = resolveColours(declared);
+    for (const w of rules.warnings) console.warn("PNML:", w);
     const rawPlaces = [];
     for (const el of doc.querySelectorAll("place")) {
       const id = el.getAttribute("id") ?? "";
@@ -1286,10 +1351,10 @@
         id,
         label: nodeText(el, "name > text") || id,
         ...nodePos(el),
-        dots: dotCount(ts?.querySelector("dots")),
+        dots: colourCount(ts, "dot", rules.defaults.dot),
         isStart: !!ts?.querySelector("playerStart"),
         marking: parseInt(nodeText(el, "initialMarking > text") || "0", 10),
-        ghostStart: ghostCount(ts?.querySelector("ghostStart"))
+        ghostStart: colourCount(ts, "ghost", rules.defaults.ghost)
       });
     }
     const rawTrans = [];
@@ -1312,7 +1377,8 @@
     }
     const nrText = doc.querySelector('net > toolspecific[tool="pn-chomper"] > nodeRadius')?.textContent?.trim();
     const nodeRadius = nrText ? parseInt(nrText, 10) : void 0;
-    return buildGameNet(rawPlaces, rawTrans, rawArcs, nodeRadius);
+    const keep = rules.keepOnReset.join() === DEFAULT_KEEP.join() ? void 0 : rules.keepOnReset;
+    return buildGameNet(rawPlaces, rawTrans, rawArcs, nodeRadius, keep);
   }
   function downloadPNML(gn, name) {
     const xml = exportPNML(gn, name);
@@ -1338,6 +1404,16 @@
   const _rt1 = { id: "t", label: "T", x: 50, y: 0 };
   const _ra1 = { id: "arc1", src: "a", tgt: "t", weight: 1 };
   const _builtGn = buildGameNet([_rp1, _rp2], [_rt1], [_ra1]);
+  const _noDecl = resolveColours([]);
+  const _dotNone = resolveColours([{ name: "dot", default: 0 }]);
+  const _dotRestore = resolveColours([{ name: "dot", reset: "restore" }]);
+  const _ghostKeep = resolveColours([{ name: "ghost", reset: "keep" }]);
+  const _unknown = resolveColours([{ name: "power", default: 0, reset: "keep" }]);
+  const _chomperOdd = resolveColours([
+    { name: "chomper", default: 2, marking: "initial" },
+    { name: "chomper", marking: "tokens" }
+  ]);
+  const _keepNone = { ...makeCircuitMap(), keepOnReset: [] };
   function hitTestTransition(net, x, y) {
     for (const t of net.transitions.values()) {
       const dx = Math.abs(x - t.x);

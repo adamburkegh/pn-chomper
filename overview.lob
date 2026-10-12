@@ -22,8 +22,8 @@ Module map (addresses are notlob module paths):
 
 - #Petri Net     — core data model (places, transitions, arcs)
 - #Petri Marking — token distribution and firing semantics
-- #Game Map      — built-in maps as Petri net definitions
-- #Game State    — live game state (token positions, score, ghosts)
+- #Game Map      — built-in maps: a Petri net and its three start markings
+- #Game State    — live game state (the three markings, score, lives)
 - #Game Engine   — game loop, input handling, win/lose detection
 - render/canvas  — canvas renderer, HUD, and all game entities
 - #IO PNML       — PNML export and import; external nets load via `?map=` URL
@@ -31,18 +31,31 @@ Module map (addresses are notlob module paths):
 
 ##Game Mechanics
 
-Chompers are tokens. Each one lives in a Place. On each turn the player
-selects an enabled transition adjacent to one of their tokens; that token
-fires through the transition and arrives in the output place(s). Token
-distribution and enabling are tracked by #Petri Marking. If the transition
-has two output arcs, a new token is born — the player gains a chomper. Dots
-in places are eaten on entry. The #Game Engine drives the game loop and ghost
-AI. The live GameState — score, token positions, dot state — is held in #Game State.
-Ghosts are autonomous tokens that fire enabled transitions at random.
+Everything in the game that is not the maze is a marking: a count of tokens
+on each place of the one net. There are three of them.
 
-Each built-in level is a GameNet value defined in #Game Map. External Petri
-nets can be loaded via importPNML from #IO PNML, either from a local file
-or via a `?map=` URL.
+- **Chompers** are the player's tokens. On each turn the player selects an
+enabled transition adjacent to one of their tokens; that token fires
+through the transition and arrives in the output place(s). If the
+transition has two output arcs, a new token is born — the player gains a
+chomper.
+- **Ghosts** are another marking, moved by the same firing rule: on a ghost
+turn one enabled transition fires, chosen at random. A ghost and a chomper
+in the same place is a collision.
+- **Dots** are the third marking. A dot is never fired anywhere; it is
+removed when a chomper is in its place, and scores.
+
+The three differ only in the rule that changes them, which is the point: the
+game is a coloured Petri net in all but name, and each colour is a marking.
+Token distribution and enabling are tracked by #Petri Marking, the three
+markings and the score and lives are the whole of the live GameState in
+#Game State, and the #Game Engine drives the game loop and the rules that
+change them.
+
+Each built-in level is a GameNet value defined in #Game Map: the net, and a
+start marking for each of the three. External Petri nets can be loaded via
+importPNML from #IO PNML, either from a local file or via a `?map=` URL; the
+file says each start marking as a count on a place.
 
 ##Petri Net as Pedagogy
 
@@ -58,7 +71,8 @@ Because the map is a real Petri net, the game teaches:
 ##Future Ideas
 
 - Soundness checking: highlight dead transitions (blocked corridors)
-- Coloured tokens: different chomper types with different abilities
+- More colours: a fourth marking with its own rule — keys, pickups, a second
+kind of ghost — is one more marking and one more rule, not a new mechanism
 - Data guards: doorways that only open when you carry certain items (variables)
 - Export fired sequence as an event log (process mining hook)
 

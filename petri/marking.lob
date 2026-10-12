@@ -6,9 +6,12 @@ Petri net. It is the dynamic state — who is where — while the net itself
 enforced by setTokens and markingRemoveTokens, both of which throw on
 violation.
 
-In the game a marking records where every chomper and every ghost currently
-lives. Multiple tokens can occupy the same place: two chompers in one room
-is perfectly valid Petri net semantics, and makes for interesting gameplay.
+In the game everything that is not the maze is a marking: one records where
+every chomper currently lives, one where every ghost does, and one where the
+dots still are. They are the same type and differ only in the rule that
+changes them. Multiple tokens can occupy the same place: two chompers in one
+room is perfectly valid Petri net semantics, and makes for interesting
+gameplay.
 
     type Marking = Map<string, number>;
 
@@ -47,6 +50,14 @@ about its size.
       let total = 0;
       for (const n of m.values()) total += n;
       return total;
+    }
+
+The places that hold at least one token, in the marking's own order, are the
+marking's support. A start marking is often described by its support alone,
+as the places where something begins.
+
+    function markedPlaces(m: Marking): string[] {
+      return [...m.entries()].filter(([, n]) => n > 0).map(([id]) => id);
     }
 
 ##Enabling and Firing
@@ -182,6 +193,10 @@ checks that no place's token count goes negative after a fire.
     markingTotal(emptyMarking()) === 0
     markingTotal(_m1) === 2
     markingTotal(_emptiedMarking()) === 0
+
+##markedPlaces lists places with tokens, and leaves out emptied ones
+    markedPlaces(_m1).join() === 'p2,p3'
+    markedPlaces(_emptiedMarking()).length === 0
 
 #References
     #Petri Net

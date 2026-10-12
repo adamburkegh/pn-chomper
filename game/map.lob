@@ -1,11 +1,15 @@
 #Game Map
 
-A game map is a Petri net with additional decoration for the game: the places
-that hold dots for the player to eat, and the places where a chomper or a ghost
-starts. The net topology is the maze; the decorations are the game-layer
-metadata. Each kind of start is a marking over the net's places, one for
-chompers, one for ghosts and one for dots, and the game state begins from
-them.
+A game map is a Petri net with three starting markings: where the chompers
+begin, where the ghosts begin and where the dots are. Everything that is in
+the game that is not the maze itself is one of those three, each a count of
+tokens per place, and the game state begins as a copy of them. The net
+topology is the maze; the markings are the game-layer metadata.
+
+A map also says which of the three are not dealt again when a life is lost
+(keepOnReset). The default is the dots alone: a life lost puts the chompers
+and ghosts back where they started and leaves the dots eaten. A map that
+wants the dots to come back lists none.
 
 Several built-in maps are supplied. The Classic map is a figure-eight. The
 Split map demonstrates token splitting with a Y-junction and long restart
@@ -19,12 +23,14 @@ cannot be drawn without crossing their forward corridors, so each names it
       dots: number;           // dots on this place at the start of a game
     }
 
+    type ColourName = 'chomper' | 'ghost' | 'dot';
+
     interface GameNet {
       net: PetriNet;
-      ghostStart: Marking;            // where ghosts begin, as a marking
+      chomperStart: Marking;          // where the player's tokens begin
+      ghostStart: Marking;            // where ghosts begin
       dotStart: Marking;              // where the dots to eat begin
-      playerStarts: string[];         // place ids where player tokens begin
-      startMarkings?: Map<string, number>; // token count per start place (default 1)
+      keepOnReset?: ColourName[];     // colours not dealt again on a life lost
       nodeRadius?: number;            // override place drawing radius (default 24)
       underpass?: string[];           // transition ids drawn on the lower tier
     }
@@ -49,11 +55,12 @@ playtest module, sim/playtest.lob).
       );
     }
 
-A ghost start is a marking over the net's places, the same kind of thing as
-the chomper's start. ghostsOn builds one from place ids, one ghost on each,
-which is all any of the built-in maps needs.
+The chomper's start and the ghosts' start are markings of exactly the same
+kind. startingOn builds one from place ids, one token on each, which is all
+any of the built-in maps needs; a map that wants several tokens on a place
+builds the marking itself.
 
-    function ghostsOn(...placeIds: string[]): Marking {
+    function startingOn(...placeIds: string[]): Marking {
       const m = emptyMarking();
       for (const id of placeIds) markingAddTokens(m, id, 1);
       return m;
@@ -135,8 +142,8 @@ starts at Centre; one ghost starts at Top Mid, well away from the player.
 
       // Ghost starts at Top Mid, far from player start Centre
       return {
-        net, ghostStart: ghostsOn('tm'), dotStart: dotsOf(net),
-        playerStarts: ['c'],
+        net, chomperStart: startingOn('c'), ghostStart: startingOn('tm'),
+        dotStart: dotsOf(net),
       };
     }
 
@@ -192,8 +199,8 @@ long to make the return journey feel like a proper map traversal.
 
       // Ghost starts at Finish Upper (far from Start)
       return {
-        net, ghostStart: ghostsOn('fin_up'), dotStart: dotsOf(net),
-        playerStarts: ['start'],
+        net, chomperStart: startingOn('start'), ghostStart: startingOn('fin_up'),
+        dotStart: dotsOf(net),
       };
     }
 
@@ -344,8 +351,8 @@ what to move instead of only that something is wrong.
       addArc(net, 'd20', 't_rst', 'start');
 
       return {
-        net, ghostStart: ghostsOn('fin'), dotStart: dotsOf(net),
-        playerStarts: ['start'],
+        net, chomperStart: startingOn('start'), ghostStart: startingOn('fin'),
+        dotStart: dotsOf(net),
       };
     }
 
@@ -419,8 +426,8 @@ of it.
       addArc(net, 'c22', 't_mid_dep','depot');
 
       return {
-        net, ghostStart: ghostsOn('east'), dotStart: dotsOf(net),
-        playerStarts: ['depot'],
+        net, chomperStart: startingOn('depot'), ghostStart: startingOn('east'),
+        dotStart: dotsOf(net),
         underpass: ['t_ne_mid', 't_se_mid', 't_mid_dep', 't_rst'],
       };
     }
@@ -621,8 +628,8 @@ cross anywhere.
       // guaranteed hops from Hub (via Mid), not one or two like every
       // start tried before it.
       return {
-        net, ghostStart: ghostsOn('den'), dotStart: dotsOf(net),
-        playerStarts: ['hub'],
+        net, chomperStart: startingOn('hub'), ghostStart: startingOn('den'),
+        dotStart: dotsOf(net),
         underpass: [
           't_nwc_esc', 't_swc_esc', 't_nec_esc', 't_sec_esc', 't_mid_home',
           't_rst',
@@ -750,15 +757,15 @@ and the PNML IO module a large, structurally rich net to work with.
 
       // Ghost starts at g4_5, centre-right
       return {
-        net, ghostStart: ghostsOn('g4_5'), dotStart: dotsOf(net),
-        playerStarts: ['g0_0'], nodeRadius: 12,
+        net, chomperStart: startingOn('g0_0'), ghostStart: startingOn('g4_5'),
+        dotStart: dotsOf(net), nodeRadius: 12,
       };
     }
 
 ~example
     makeClassicMap().net.places.size === 7
     makeClassicMap().net.transitions.size === 8
-    makeClassicMap().playerStarts.includes('c')
+    tokenCount(makeClassicMap().chomperStart, 'c') === 1
     markingTotal(makeClassicMap().dotStart) === 6
     tokenCount(makeClassicMap().dotStart, 'c') === 0
 
@@ -788,7 +795,7 @@ and the PNML IO module a large, structurally rich net to work with.
     makeMandalaMap().net.transitions.size === 20
     outputArcs(makeMandalaMap().net, 't_fork0').length === 2
     inputArcs(makeMandalaMap().net, 't_join').length === 2
-    makeMandalaMap().playerStarts.includes('hub')
+    tokenCount(makeMandalaMap().chomperStart, 'hub') === 1
     underpassArcIds(makeMandalaMap()).size === 20
     markingTotal(makeMandalaMap().dotStart) === 14
     tokenCount(makeMandalaMap().dotStart, 'den') === 0
@@ -800,7 +807,7 @@ and the PNML IO module a large, structurally rich net to work with.
 ~example
     makeGridMap().net.places.size === 101
     makeGridMap().net.transitions.size === 179
-    makeGridMap().playerStarts.includes('g0_0')
+    tokenCount(makeGridMap().chomperStart, 'g0_0') === 1
     makeGridMap().nodeRadius === 12
     markingTotal(makeGridMap().dotStart) === 100
 

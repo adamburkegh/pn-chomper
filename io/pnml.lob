@@ -4,33 +4,116 @@ PNML (Petri Net Markup Language) is the standard XML exchange format for Petri
 nets. This module handles both export and import.
 
 Export serialises a GameNet to a PNML string. The standard elements carry the
-net topology and layout positions. Game-specific data (playerStart,
-ghostStart, dots, nodeRadius) lives in toolspecific elements so vanilla
-PNML readers ignore it cleanly.
+net topology and layout positions. Game-specific data lives in toolspecific
+elements so vanilla PNML readers ignore it cleanly.
 
-Both kinds of token start the same way, as a mark on a place: playerStart for
-the chomper, ghostStart for a ghost. A bare ghostStart means one ghost, and a
-count, ghostStart with the number as its text, means that many. An earlier
-version marked a transition as a ghost spawn instead, which put the ghost on
-that transition's first output place; that form is no longer read, so a map
-marking ghosts that way loads with none.
+A GameNet carries three markings, one per token colour, and the file says
+each as a count on a place. The chomper marking is the net's own initial
+marking: the standard initialMarking element, with playerStart naming a place
+that holds the chomper when it carries no count. The ghost and dot markings
+are tokens elements in the place's toolspecific block, each naming its
+colour: a tokens element for ghost with the number as its text means that
+many ghosts there, and a bare one means one. A place says nothing about a
+colour when it has the colour's default.
 
-Import is split into two functions. buildGameNet takes plain #RawPlace,
-#RawTrans, and #RawArc records and assembles a GameNet: it scale-fits all
-positions to the 950×780 canvas, builds the net, resolves playerStarts
-(all toolspecific playerStart elements > all initialMarking places > first
-place as fallback), and collects the ghostStart marking. importPNML is a thin browser
-wrapper: it calls DOMParser to parse the XML string into a Document,
-extracts the raw records, then delegates to buildGameNet.
+The colours are declared once, in the net's toolspecific block, as a colours
+element holding a colour element for each. A declaration says a colour's
+default count, which is what every place with no tokens element of that
+colour holds; for the chomper, that its marking is the standard
+initialMarking; and whether a life lost deals it again (reset restore) or
+leaves it alone (reset keep). An attribute left out means the built-in value:
+the dot has a default of one and is kept on reset, the chomper and the ghost
+have a default of none and are dealt again. With no declaration at all the
+three built-in colours apply, so a vanilla net or a hand-written map need say
+nothing.
 
-This split means the assembly logic is testable without a browser.
-importPNML itself cannot be claimed — DOMParser is not available in the
-tsx runtime — but buildGameNet can be. The full XML round-trip therefore
+Only the three colours the game has rules for are honoured. A declaration for
+any other colour is reported and ignored, and so are tokens elements naming
+one, so a file written for a later version still loads.
+
+Version 0.8.0 and earlier used a different format, a ghostSpawn element on a
+transition and a hasDot element to suppress a dot. Those are not read, so a
+map written that way loads with no ghosts and a dot on every place; the
+CHANGELOG records the change.
+
+Import is split into functions that can be claimed without a browser.
+resolveColours turns the declarations into the defaults and the colours kept
+on reset. buildGameNet takes plain #RawPlace, #RawTrans, and #RawArc records
+and assembles a GameNet: it scale-fits all positions to the 950×780 canvas,
+builds the net, resolves the chomper marking (all toolspecific playerStart
+elements > all initialMarking places > first place as fallback), and
+collects the ghost and dot markings. importPNML is a thin browser wrapper: it
+calls DOMParser to parse the XML string into a Document, extracts the raw
+records, then delegates to those. importPNML itself cannot be claimed —
+DOMParser is not available in the tsx runtime — so the full XML round-trip
 remains documented in prose rather than the claim layer.
 
-When loading vanilla PNML (no toolspecific extensions), safe defaults
-apply: every place gets a dot, the first marked place is added to
-playerStarts, and there are no ghosts.
+When loading vanilla PNML (no toolspecific extensions), the built-in
+defaults apply: every place gets a dot, the first marked place holds the
+chomper, and there are no ghosts.
+
+The built-in colours, and what a declaration may change about them. A colour
+element's attributes are all optional and name only what differs from the
+built-in value.
+
+    const COLOURS: ColourName[] = ['chomper', 'ghost', 'dot'];
+    const DEFAULT_KEEP: ColourName[] = ['dot'];
+    const BUILT_IN_DEFAULTS: Record<ColourName, number> =
+      { chomper: 0, ghost: 0, dot: 1 };
+
+    type RawColour = {
+      name: string; default?: number; marking?: string; reset?: string;
+    };
+
+    interface ColourRules {
+      defaults: Record<ColourName, number>;
+      keepOnReset: ColourName[];
+      warnings: string[];
+    }
+
+    function resolveColours(declared: RawColour[]): ColourRules {
+      const defaults = { ...BUILT_IN_DEFAULTS };
+      const keep = new Set<ColourName>(DEFAULT_KEEP);
+      const warnings: string[] = [];
+
+      for (const d of declared) {
+        const name = COLOURS.find(c => c === d.name);
+        if (!name) {
+          warnings.push(`colour '${d.name}' is not one the game has rules for; ignored`);
+          continue;
+        }
+        if (d.default !== undefined) {
+          if (!Number.isInteger(d.default) || d.default < 0) {
+            warnings.push(`colour '${name}': default must be a whole number, not ${d.default}`);
+          } else if (name === 'chomper' && d.default !== 0) {
+            warnings.push(`colour 'chomper': a default other than none is not supported; ignored`);
+          } else {
+            defaults[name] = d.default;
+          }
+        }
+        if (d.marking !== undefined && !(name === 'chomper' && d.marking === 'initial')) {
+          warnings.push(`colour '${name}': marking '${d.marking}' is not supported; ignored`);
+        }
+        if (d.reset === 'keep') keep.add(name);
+        else if (d.reset === 'restore') keep.delete(name);
+        else if (d.reset !== undefined) {
+          warnings.push(`colour '${name}': reset must be keep or restore, not '${d.reset}'`);
+        }
+      }
+      return {
+        defaults,
+        keepOnReset: COLOURS.filter(c => keep.has(c)),
+        warnings,
+      };
+    }
+
+The text of a tokens element: nothing at all means one token, a number is that
+many, and anything else counts as one since the element is there.
+
+    function countFromText(text: string): number {
+      const n = parseInt(text.trim(), 10);
+      return Number.isNaN(n) ? 1 : Math.max(0, n);
+    }
 
     function exportPNML(gn: GameNet, netName: string): string {
       const { net } = gn;
@@ -43,6 +126,16 @@ playerStarts, and there are no ghosts.
 
       // Net-level toolspecific
       lines.push('    <toolspecific tool="pn-chomper" version="1.0">');
+      const keep = gn.keepOnReset ?? DEFAULT_KEEP;
+      if (keep.join() !== DEFAULT_KEEP.join()) {
+        // Only a map that differs from the built-ins needs to say so.
+        const reset = (c: ColourName) => keep.includes(c) ? 'keep' : 'restore';
+        lines.push('      <colours>');
+        lines.push(`        <colour name="chomper" marking="initial" reset="${reset('chomper')}"/>`);
+        lines.push(`        <colour name="ghost" reset="${reset('ghost')}"/>`);
+        lines.push(`        <colour name="dot" reset="${reset('dot')}"/>`);
+        lines.push('      </colours>');
+      }
       if (gn.nodeRadius !== undefined) {
         lines.push(`      <nodeRadius>${gn.nodeRadius}</nodeRadius>`);
       }
@@ -55,16 +148,16 @@ playerStarts, and there are no ghosts.
         lines.push(`      <place id="${escXml(p.id)}">`);
         lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
         lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
-        const marking = gn.startMarkings?.get(p.id) ?? (gn.playerStarts.includes(p.id) ? 1 : 0);
+        const marking = tokenCount(gn.chomperStart, p.id);
         lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
         lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
-        if (gn.playerStarts.includes(p.id)) lines.push('          <playerStart/>');
+        if (marking > 0) lines.push('          <playerStart/>');
+        // A colour's built-in default is none for ghosts and one for dots,
+        // so only a count that differs from that is written.
         const ghosts = tokenCount(gn.ghostStart, p.id);
-        if (ghosts === 1)  lines.push('          <ghostStart/>');
-        if (ghosts > 1)    lines.push(`          <ghostStart>${ghosts}</ghostStart>`);
-        // One dot per place is the default, so only a different count is written.
+        if (ghosts > 0)    lines.push(`          <tokens colour="ghost">${ghosts}</tokens>`);
         const dots = tokenCount(gn.dotStart, p.id);
-        if (dots !== 1)    lines.push(`          <dots>${dots}</dots>`);
+        if (dots !== 1)    lines.push(`          <tokens colour="dot">${dots}</tokens>`);
         lines.push('        </toolspecific>');
         lines.push('      </place>');
       }
@@ -111,6 +204,7 @@ playerStarts, and there are no ghosts.
       rawTrans:  RawTrans[],
       rawArcs:   RawArc[],
       nodeRadius?: number,
+      keepOnReset?: ColourName[],
     ): GameNet {
       const allX = [...rawPlaces, ...rawTrans].map(n => n.x);
       const allY = [...rawPlaces, ...rawTrans].map(n => n.y);
@@ -142,15 +236,15 @@ playerStarts, and there are no ghosts.
       if (isStartPlaces.length > 0) {
         startEntries = isStartPlaces.map(p => ({ id: p.id, count: p.marking > 0 ? p.marking : 1 }));
       } else {
-        const markedPlaces = rawPlaces.filter(p => p.marking > 0);
-        if (markedPlaces.length > 0) {
-          startEntries = markedPlaces.map(p => ({ id: p.id, count: p.marking }));
+        const withTokens = rawPlaces.filter(p => p.marking > 0);
+        if (withTokens.length > 0) {
+          startEntries = withTokens.map(p => ({ id: p.id, count: p.marking }));
         } else {
           startEntries = rawPlaces[0] ? [{ id: rawPlaces[0].id, count: 1 }] : [];
         }
       }
-      const playerStarts   = startEntries.map(e => e.id);
-      const startMarkings  = new Map(startEntries.map(e => [e.id, e.count]));
+      const chomperStart = emptyMarking();
+      for (const e of startEntries) markingAddTokens(chomperStart, e.id, e.count);
 
       const ghostStart = emptyMarking();
       for (const p of rawPlaces) {
@@ -160,28 +254,30 @@ playerStarts, and there are no ghosts.
       const dotStart = dotsOf(net);
 
       return {
-        net, playerStarts, startMarkings, ghostStart, dotStart,
+        net, chomperStart, ghostStart, dotStart,
+        ...(keepOnReset !== undefined ? { keepOnReset } : {}),
         ...(nodeRadius !== undefined ? { nodeRadius } : {}),
       };
     }
 
-A ghostStart element with no text is one ghost, with a number its count, and a
-missing element is none; anything that does not read as a positive number
-counts as one, since the element is there.
+How many tokens of a colour a place's toolspecific block gives it: the count
+in the tokens element for that colour if there is one, and the colour's
+default if there is not.
 
-    function ghostCount(el: Element | null | undefined): number {
-      if (!el) return 0;
-      const n = parseInt(el.textContent?.trim() ?? '', 10);
-      return n > 0 ? n : 1;
+    function colourCount(
+      ts: Element | null, colour: ColourName, dflt: number,
+    ): number {
+      if (!ts) return dflt;
+      for (const el of ts.querySelectorAll('tokens')) {
+        if (el.getAttribute('colour') === colour)
+          return countFromText(el.textContent ?? '');
+      }
+      return dflt;
     }
 
-A place has one dot unless its dots element says otherwise: no element, or no
-number in it, is one, and a number is that many, zero suppressing the dot.
-
-    function dotCount(el: Element | null | undefined): number {
-      if (!el) return 1;
-      const n = parseInt(el.textContent?.trim() ?? '', 10);
-      return Number.isNaN(n) || n < 0 ? 1 : n;
+    function numberAttr(el: Element, name: string): number | undefined {
+      const v = el.getAttribute(name);
+      return v === null ? undefined : parseInt(v, 10);
     }
 
     function importPNML(xmlString: string): GameNet {
@@ -197,6 +293,20 @@ number in it, is one, and a number is that many, zero suppressing the dot.
         return { x: parseFloat(p?.getAttribute('x') ?? '0'), y: parseFloat(p?.getAttribute('y') ?? '0') };
       }
 
+      const declared: RawColour[] = [];
+      for (const el of doc.querySelectorAll(
+        'net > toolspecific[tool="pn-chomper"] > colours > colour',
+      )) {
+        declared.push({
+          name:    el.getAttribute('name') ?? '',
+          default: numberAttr(el, 'default'),
+          marking: el.getAttribute('marking') ?? undefined,
+          reset:   el.getAttribute('reset') ?? undefined,
+        });
+      }
+      const rules = resolveColours(declared);
+      for (const w of rules.warnings) console.warn('PNML:', w);
+
       const rawPlaces: RawPlace[] = [];
       for (const el of doc.querySelectorAll('place')) {
         const id = el.getAttribute('id') ?? '';
@@ -204,10 +314,10 @@ number in it, is one, and a number is that many, zero suppressing the dot.
         rawPlaces.push({
           id, label: nodeText(el, 'name > text') || id,
           ...nodePos(el),
-          dots:    dotCount(ts?.querySelector('dots')),
+          dots:    colourCount(ts, 'dot', rules.defaults.dot),
           isStart: !!ts?.querySelector('playerStart'),
           marking: parseInt(nodeText(el, 'initialMarking > text') || '0', 10),
-          ghostStart: ghostCount(ts?.querySelector('ghostStart')),
+          ghostStart: colourCount(ts, 'ghost', rules.defaults.ghost),
         });
       }
 
@@ -234,7 +344,11 @@ number in it, is one, and a number is that many, zero suppressing the dot.
                        ?.textContent?.trim();
       const nodeRadius = nrText ? parseInt(nrText, 10) : undefined;
 
-      return buildGameNet(rawPlaces, rawTrans, rawArcs, nodeRadius);
+      // Only a map that differs from the built-ins carries a keepOnReset.
+      const keep = rules.keepOnReset.join() === DEFAULT_KEEP.join()
+        ? undefined : rules.keepOnReset;
+
+      return buildGameNet(rawPlaces, rawTrans, rawArcs, nodeRadius, keep);
     }
 
     function downloadPNML(gn: GameNet, name: string): void {
@@ -261,7 +375,8 @@ assembly without a browser.
     const _builtGn = buildGameNet([_rp1, _rp2], [_rt1], [_ra1]);
 
 ~example
-    _builtGn.playerStarts.includes('a')
+    tokenCount(_builtGn.chomperStart, 'a') === 1
+    tokenCount(_builtGn.chomperStart, 'b') === 0
     tokenCount(_builtGn.ghostStart, 'b') === 2
     tokenCount(_builtGn.ghostStart, 'a') === 0
     _builtGn.net.places.has('a')
@@ -270,7 +385,7 @@ assembly without a browser.
     tokenCount(_builtGn.dotStart, 'b') === 3
     _builtGn.net.arcs.length === 1
 
-~property playerStarts_from_isStart
+~property chomperStart_from_isStart
     fc.assert(fc.property(
       fc.integer({ min: 0, max: 5 }),
       fc.integer({ min: 1, max: 5 }),
@@ -280,11 +395,11 @@ assembly without a browser.
           dots: 1, isStart: i === startIdx % total, marking: 0,
         }));
         const gn = buildGameNet(places, [], []);
-        return gn.playerStarts.includes(`p${startIdx % total}`);
+        return tokenCount(gn.chomperStart, `p${startIdx % total}`) === 1;
       }
     ))
 
-~property all_isStart_in_playerStarts
+~property all_isStart_in_chomperStart
     fc.assert(fc.property(
       fc.array(fc.boolean(), { minLength: 1, maxLength: 10 }),
       (isStartFlags) => {
@@ -295,7 +410,7 @@ assembly without a browser.
         const gn = buildGameNet(places, [], []);
         const expected = places.filter(p => p.isStart).map(p => p.id);
         return expected.length === 0 ||
-          expected.every(id => gn.playerStarts.includes(id));
+          expected.every(id => tokenCount(gn.chomperStart, id) > 0);
       }
     ))
 
@@ -358,13 +473,56 @@ assembly without a browser.
 ~example
     exportPNML(makeSplitMap(), 'Split').includes('<pnml')
     exportPNML(makeSplitMap(), 'Split').includes('playerStart')
-    exportPNML(makeSplitMap(), 'Split').includes('ghostStart')
+    exportPNML(makeSplitMap(), 'Split').includes('<tokens colour="ghost">1</tokens>')
     exportPNML(makeSplitMap(), 'Split').includes('<arc ')
 
 ~example
     exportPNML(makeGridMap(), 'Grid').includes('<nodeRadius>12</nodeRadius>')
-    exportPNML(makeGridMap(), 'Grid').includes('<dots>0</dots>')
-    exportPNML(_builtGn, 'Dots').includes('<dots>3</dots>')
+    exportPNML(makeGridMap(), 'Grid').includes('<tokens colour="dot">0</tokens>')
+    exportPNML(_builtGn, 'Dots').includes('<tokens colour="dot">3</tokens>')
+
+The declared colours are resolved by a function that needs no DOM, so what a
+declaration may and may not change is claimed here. A colour left out of the
+declarations keeps its built-in rule.
+
+    const _noDecl      = resolveColours([]);
+    const _dotNone     = resolveColours([{ name: 'dot', default: 0 }]);
+    const _dotRestore  = resolveColours([{ name: 'dot', reset: 'restore' }]);
+    const _ghostKeep   = resolveColours([{ name: 'ghost', reset: 'keep' }]);
+    const _unknown     = resolveColours([{ name: 'power', default: 0, reset: 'keep' }]);
+    const _chomperOdd  = resolveColours([
+      { name: 'chomper', default: 2, marking: 'initial' },
+      { name: 'chomper', marking: 'tokens' },
+    ]);
+
+~example
+    _noDecl.defaults.dot === 1
+    _noDecl.defaults.ghost === 0
+    _noDecl.defaults.chomper === 0
+    _noDecl.keepOnReset.join() === 'dot'
+    _noDecl.warnings.length === 0
+    _dotNone.defaults.dot === 0
+    _dotNone.keepOnReset.join() === 'dot'
+    _dotRestore.keepOnReset.length === 0
+    _ghostKeep.keepOnReset.join() === 'ghost,dot'
+    _unknown.warnings.length === 1
+    _unknown.keepOnReset.join() === 'dot'
+    _chomperOdd.defaults.chomper === 0
+    _chomperOdd.warnings.length === 2
+    countFromText('') === 1
+    countFromText(' 3 ') === 3
+    countFromText('0') === 0
+    countFromText('lots') === 1
+
+A map that differs from the built-ins in what it keeps on reset says so in its
+declarations, and one that does not says nothing, so an ordinary export has no
+header to read past.
+
+    const _keepNone: GameNet = { ...makeCircuitMap(), keepOnReset: [] };
+
+~example
+    exportPNML(_keepNone, 'Keep').includes('<colour name="dot" reset="restore"/>')
+    !exportPNML(makeCircuitMap(), 'Plain').includes('<colours>')
 
 ---
 
@@ -382,12 +540,16 @@ assembly without a browser.
 ##playerStart gets initialMarking 1, others get 0
     exportPNML(makeSplitMap(), 'Split').includes('<initialMarking><text>1</text></initialMarking>')
 
-##ghostStart place is marked, and no transition carries a spawn mark
-    exportPNML(makeSplitMap(), 'Split').includes('<ghostStart/>')
+##a ghost's place carries a tokens element, and no transition a spawn mark
+    exportPNML(makeSplitMap(), 'Split').includes('<tokens colour="ghost">1</tokens>')
     !exportPNML(makeSplitMap(), 'Split').includes('ghostSpawn')
+    !exportPNML(makeSplitMap(), 'Split').includes('ghostStart')
 
 ##a place with several ghosts exports its count
-    exportPNML(_builtGn, 'Two').includes('<ghostStart>2</ghostStart>')
+    exportPNML(_builtGn, 'Two').includes('<tokens colour="ghost">2</tokens>')
+
+##a place with its default dot says nothing about it
+    !exportPNML(makeSplitMap(), 'Split').includes('<tokens colour="dot">1</tokens>')
 
 ##playerStart place is marked
     exportPNML(makeSplitMap(), 'Split').includes('<playerStart/>')

@@ -227,7 +227,7 @@ that coupling is the point.
 
       const eng = makeEngine(
         {
-          net, playerStarts: ['start'],
+          net, chomperStart: startingOn('start'),
           ghostStart: emptyMarking(), dotStart: emptyMarking(),
         }
       );
