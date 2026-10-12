@@ -11,16 +11,18 @@ Any PNML file can be loaded as a map. To make it a chomper-style puzzle, you wil
 
 ## Ghosts
 
-Ghost spawn points are determined by a tool-specific block added to a transition. Multiple transitions can be made ghost spawns.
+A ghost starts on any place carrying a tool-specific `<ghostStart/>` block, just as the chomper starts on a place. Mark several places for several ghosts, or put a count in the element to start several ghosts on one place: `<ghostStart>3</ghostStart>`.
 
 ```xml
-<transition id="t_fork">
-  <name><text>Fork</text></name>
+<place id="p_den">
+  <name><text>Den</text></name>
   <toolspecific tool="pn-chomper" version="1.0">
-    <ghostSpawn/>
+    <ghostStart/>
   </toolspecific>
-</transition>
+</place>
 ```
+
+Earlier versions marked a transition with `<ghostSpawn/>` instead. That form is no longer read.
 
 ## Chomper Start
 

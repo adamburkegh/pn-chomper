@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed
+
+- **Ghosts start on a place, not a transition**: a ghost now begins on a place
+  marked `<ghostStart/>`, the same way the chomper begins on a place marked
+  `<playerStart/>`; a count, as in `<ghostStart>3</ghostStart>`, starts that
+  many ghosts there. This is a breaking change to the PNML format: a map that
+  marks a transition with `<ghostSpawn/>` is no longer read and loads with no
+  ghosts, and exported maps now carry `<ghostStart/>` on places. The built-in
+  maps behave as before, since each ghost starts where its spawn transition
+  used to put it. Mandala's tail loses one handle place so the ghost can begin
+  in the Den and still be five hops from Hub.
+
 ### Fixed
 
 - The `inject-bundle.ts` build hook now copes with being run by another

@@ -1,9 +1,9 @@
 #Game Map
 
 A game map is a Petri net with additional decoration for the game: each place
-knows whether it contains a dot for the player to eat, and each transition can
-be marked as a ghost-spawn point. The net topology is the maze; the decorations
-are the game-layer metadata.
+knows whether it contains a dot for the player to eat, and a place can be
+marked as where a chomper or a ghost starts. The net topology is the maze; the
+decorations are the game-layer metadata.
 
 Several built-in maps are supplied. The Classic map is a figure-eight. The
 Split map demonstrates token splitting with a Y-junction and long restart
@@ -19,7 +19,7 @@ cannot be drawn without crossing their forward corridors, so each names it
 
     interface GameNet {
       net: PetriNet;
-      ghostSpawns: string[];          // transition ids where ghosts emerge
+      ghostStart: Marking;            // where ghosts begin, as a marking
       playerStarts: string[];         // place ids where player tokens begin
       startMarkings?: Map<string, number>; // token count per start place (default 1)
       nodeRadius?: number;            // override place drawing radius (default 24)
@@ -46,6 +46,16 @@ playtest module, sim/playtest.lob).
       );
     }
 
+A ghost start is a marking over the net's places, the same kind of thing as
+the chomper's start. ghostsOn builds one from place ids, one ghost on each,
+which is all any of the built-in maps needs.
+
+    function ghostsOn(...placeIds: string[]): Marking {
+      const m = emptyMarking();
+      for (const id of placeIds) markingAddTokens(m, id, 1);
+      return m;
+    }
+
     function gamePlace(
       net: PetriNet, id: string, label: string,
       x: number, y: number, hasDot = true,
@@ -59,8 +69,7 @@ playtest module, sim/playtest.lob).
 
 The classic map is a figure-eight: two loops sharing a central place.
 Nodes are spread generously so every corridor is clearly visible. The player
-starts at Centre; one ghost spawns at the top-left split and exits to Top Mid,
-well away from the player.
+starts at Centre; one ghost starts at Top Mid, well away from the player.
 
     function makeClassicMap(): GameNet {
       const net = makeNet();
@@ -107,8 +116,8 @@ well away from the player.
       addArc(net, 'a15', 'br',  'brs');
       addArc(net, 'a16', 'brs', 'c');
 
-      // Ghost spawns at 'tls' → exits to Top Mid, far from player start Centre
-      return { net, ghostSpawns: ['tls'], playerStarts: ['c'] };
+      // Ghost starts at Top Mid, far from player start Centre
+      return { net, ghostStart: ghostsOn('tm'), playerStarts: ['c'] };
     }
 
 ##Split Map
@@ -161,8 +170,8 @@ long to make the return journey feel like a proper map traversal.
       addArc(net, 'b12','fin_lo', 't_rst_l');
       addArc(net, 'b13','t_rst_l','start');
 
-      // Ghost spawns at t_up, exits to Finish Upper (far from Start)
-      return { net, ghostSpawns: ['t_up'], playerStarts: ['start'] };
+      // Ghost starts at Finish Upper (far from Start)
+      return { net, ghostStart: ghostsOn('fin_up'), playerStarts: ['start'] };
     }
 
 ##Diamond Map
@@ -171,7 +180,7 @@ The diamond extends the basic split-then-merge with optional detour rooms
 on each arm. Fork sends one token into the Upper arm and one into the
 Lower arm. Each arm offers a direct corridor (eat one dot) or a detour
 room (eat two dots but take an extra step). Sync requires tokens in BOTH
-arm exits simultaneously. The ghost spawns at Sync and reaches Start in a
+arm exits simultaneously. The ghost starts at Finish and reaches Start in a
 single hop (Finish → Restart → Start); Start's only onward transition is
 Fork itself, so a ghost arriving there replicates almost immediately, the
 same mechanism behind Mandala's fork-replication — and this map has no
@@ -311,7 +320,7 @@ what to move instead of only that something is wrong.
       addArc(net, 'd19', 'fin',   't_rst');
       addArc(net, 'd20', 't_rst', 'start');
 
-      return { net, ghostSpawns: ['t_sync'], playerStarts: ['start'] };
+      return { net, ghostStart: ghostsOn('fin'), playerStarts: ['start'] };
     }
 
 ##Circuit Map
@@ -384,7 +393,7 @@ of it.
       addArc(net, 'c22', 't_mid_dep','depot');
 
       return {
-        net, ghostSpawns: ['t_sync'], playerStarts: ['depot'],
+        net, ghostStart: ghostsOn('east'), playerStarts: ['depot'],
         underpass: ['t_ne_mid', 't_se_mid', 't_mid_dep', 't_rst'],
       };
     }
@@ -419,9 +428,10 @@ at around 1% even with a greedy player) — the rest of the net is compact
 enough that one extra hop barely delays the ghost reaching a fork at all.
 
 The fan handle is the stronger fix for the same problem: a long, one-way,
-branchless corridor (Den → H4 → H3 → H2 → H1 → Mid) that the ghost spawns
-at the far end of, five guaranteed hops from Hub via Mid rather than the
-one or two hops every node tried before it worked out to. Nothing else
+branchless corridor (Den → H3 → H2 → H1 → Mid, the handles counting down
+to Mid) that the ghost starts at the far end of, in the Den: five guaranteed
+hops from Hub via Mid rather than the one or two hops every node tried
+before it worked out to. Nothing else
 ever visits it — the handle places carry no dots, so winning never
 requires going there, and its only job is to cost the ghost real turns
 before it becomes dangerous at all.
@@ -478,16 +488,15 @@ cross anywhere.
       gamePlace(net, 'mid',  'Mid',            475, 640);  // shared escape hub
 
       // The fan handle — a one-way chain with no branches and no dots,
-      // existing purely to put real distance between the ghost's spawn
-      // and the fork machinery. Earlier spawn placements (a petal, then
+      // existing purely to put real distance between the ghost's start
+      // and the fork machinery. Earlier start placements (a petal, then
       // Mid's escape network) all turned out to be within a hop or two of
       // Hub regardless of which node was chosen, because the rest of the
       // net is compact; a dedicated corridor is the only way to actually
       // buy turns rather than just relocate the same short distance.
       gamePlace(net, 'den', 'Ghost Den', 50,  740, false);
-      gamePlace(net, 'h4',  'Handle 4',  156, 740, false);
-      gamePlace(net, 'h3',  'Handle 3',  262, 740, false);
-      gamePlace(net, 'h2',  'Handle 2',  368, 740, false);
+      gamePlace(net, 'h3',  'Handle 3',  190, 740, false);
+      gamePlace(net, 'h2',  'Handle 2',  333, 740, false);
       gamePlace(net, 'h1',  'Handle 1',  475, 740, false);
 
       // Forks
@@ -518,10 +527,9 @@ cross anywhere.
       addTransition(net, 't_mid_home', 'Mid->Home', 545, 375);  // mirrors Goal about x=475
 
       // Fan handle — one-way, a long tail along the bottom edge
-      addTransition(net, 't_den_h4', 'Den->H4', 103, 740);
-      addTransition(net, 't_h4_h3',  'H4->H3',  209, 740);
-      addTransition(net, 't_h3_h2',  'H3->H2',  315, 740);
-      addTransition(net, 't_h2_h1',  'H2->H1',  421, 740);
+      addTransition(net, 't_den_h3', 'Den->H3', 120, 740);
+      addTransition(net, 't_h3_h2',  'H3->H2',  262, 740);
+      addTransition(net, 't_h2_h1',  'H2->H1',  404, 740);
       addTransition(net, 't_h1_mid', 'H1->Mid', 475, 690);
 
       // Level-1 fork (1 → 2)
@@ -573,10 +581,8 @@ cross anywhere.
       // Fan handle — one-way, Den to Mid (which already connects to Hub
       // via t_mid_home, so the last leg reuses a route already proven
       // clear rather than threading a new line through the fork cluster).
-      addArc(net, 'm39', 'den', 't_den_h4');
-      addArc(net, 'm40', 't_den_h4', 'h4');
-      addArc(net, 'm41', 'h4',  't_h4_h3');
-      addArc(net, 'm42', 't_h4_h3', 'h3');
+      addArc(net, 'm39', 'den', 't_den_h3');
+      addArc(net, 'm40', 't_den_h3', 'h3');
       addArc(net, 'm43', 'h3',  't_h3_h2');
       addArc(net, 'm44', 't_h3_h2', 'h2');
       addArc(net, 'm45', 'h2',  't_h2_h1');
@@ -584,15 +590,15 @@ cross anywhere.
       addArc(net, 'm47', 'h1',  't_h1_mid');
       addArc(net, 'm48', 't_h1_mid', 'mid');
 
-      // Ghost spawns in the Den, at the far end of the fan handle — five
+      // The ghost starts in the Den, at the far end of the fan handle — five
       // guaranteed hops from Hub (via Mid), not one or two like every
-      // spawn tried before it.
+      // start tried before it.
       return {
-        net, ghostSpawns: ['t_den_h4'], playerStarts: ['hub'],
+        net, ghostStart: ghostsOn('den'), playerStarts: ['hub'],
         underpass: [
           't_nwc_esc', 't_swc_esc', 't_nec_esc', 't_sec_esc', 't_mid_home',
           't_rst',
-          't_den_h4', 't_h4_h3', 't_h3_h2', 't_h2_h1', 't_h1_mid',
+          't_den_h3', 't_h3_h2', 't_h2_h1', 't_h1_mid',
         ],
       };
     }
@@ -714,8 +720,10 @@ and the PNML IO module a large, structurally rich net to work with.
       addArc(net, 'ar_rst_a', `g${ROWS - 1}_${COLS - 1}`, 'g_rst');
       addArc(net, 'ar_rst_b', 'g_rst', 'g0_0');
 
-      // Ghost spawns at centre-right transition, emerges at g4_5
-      return { net, ghostSpawns: ['gr4_4'], playerStarts: ['g0_0'], nodeRadius: 12 };
+      // Ghost starts at g4_5, centre-right
+      return {
+        net, ghostStart: ghostsOn('g4_5'), playerStarts: ['g0_0'], nodeRadius: 12,
+      };
     }
 
 ~example
@@ -744,12 +752,12 @@ and the PNML IO module a large, structurally rich net to work with.
     underpassArcIds(makeClassicMap()).size === 0
 
 ~example
-    makeMandalaMap().net.places.size === 20
-    makeMandalaMap().net.transitions.size === 21
+    makeMandalaMap().net.places.size === 19
+    makeMandalaMap().net.transitions.size === 20
     outputArcs(makeMandalaMap().net, 't_fork0').length === 2
     inputArcs(makeMandalaMap().net, 't_join').length === 2
     makeMandalaMap().playerStarts.includes('hub')
-    underpassArcIds(makeMandalaMap()).size === 22
+    underpassArcIds(makeMandalaMap()).size === 20
 
 ~example
     _mandalaFullTraversal().atGoal === 1
@@ -781,8 +789,9 @@ grid neighbours) makes the clearance check meaningless there.
 ##classic map arcs are bipartite
     _arcsBipartite(makeClassicMap())
 
-##ghost spawn is a valid transition
-    makeClassicMap().net.transitions.has(makeClassicMap().ghostSpawns[0])
+##ghost start is on valid places
+    [...makeClassicMap().ghostStart.keys()].every(id => makeClassicMap().net.places.has(id))
+    tokenCount(makeClassicMap().ghostStart, 'tm') === 1
 
 ##split map: fork has one input and two outputs
     inputArcs(makeSplitMap().net, 't_fork').length === 1
@@ -819,8 +828,9 @@ grid neighbours) makes the clearance check meaningless there.
     transitionsForPlace(makeMandalaMap().net, 'ne_c').length === 2
     transitionsForPlace(makeMandalaMap().net, 'se_c').length === 2
 
-##mandala: ghost spawn is a valid transition
-    makeMandalaMap().net.transitions.has(makeMandalaMap().ghostSpawns[0])
+##mandala: ghost starts in the Den
+    tokenCount(makeMandalaMap().ghostStart, 'den') === 1
+    [...makeMandalaMap().ghostStart.keys()].every(id => makeMandalaMap().net.places.has(id))
 
 ##mandala: full traversal conserves a single token from hub to goal
     _mandalaFullTraversal().atGoal === 1

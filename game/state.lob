@@ -23,9 +23,10 @@ maps expose fork-join coordination from the very first move.
       lives: number;
     }
 
-Spawning chompers and ghosts is shared between the initial deal and a
-post-death reset, so both read the exact same start/spawn rules from the
-#Game Map.
+Both kinds of token start as a mark on a place: chompers on playerStarts
+(with a count from startMarkings), ghosts from the ghostStart marking.
+Dealing them is shared between the initial deal and a post-death reset, so
+both read the exact same start rules from the #Game Map.
 
     function spawnChompers(gn: GameNet): Marking {
       const chompers = emptyMarking();
@@ -37,10 +38,8 @@ post-death reset, so both read the exact same start/spawn rules from the
 
     function spawnGhosts(gn: GameNet): Marking {
       const ghosts = emptyMarking();
-      for (const spawnId of gn.ghostSpawns) {
-        const outgoing = outputArcs(gn.net, spawnId);
-        if (outgoing.length > 0)
-          markingAddTokens(ghosts, outgoing[0].target, 1);
+      for (const [placeId, count] of gn.ghostStart) {
+        markingAddTokens(ghosts, placeId, count);
       }
       return ghosts;
     }
@@ -273,6 +272,5 @@ own, unlike the corridor places.
     _testDeadlockRecovery().resetToStart
 
 #References
-    #Petri Net
     #Petri Marking
     #Game Map

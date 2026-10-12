@@ -4,17 +4,24 @@ PNML (Petri Net Markup Language) is the standard XML exchange format for Petri
 nets. This module handles both export and import.
 
 Export serialises a GameNet to a PNML string. The standard elements carry the
-net topology and layout positions. Game-specific data (playerStart, ghostSpawns,
-hasDot, nodeRadius) lives in toolspecific elements so vanilla PNML readers
-ignore it cleanly.
+net topology and layout positions. Game-specific data (playerStart,
+ghostStart, hasDot, nodeRadius) lives in toolspecific elements so vanilla
+PNML readers ignore it cleanly.
+
+Both kinds of token start the same way, as a mark on a place: playerStart for
+the chomper, ghostStart for a ghost. A bare ghostStart means one ghost, and a
+count, ghostStart with the number as its text, means that many. An earlier
+version marked a transition as a ghost spawn instead, which put the ghost on
+that transition's first output place; that form is no longer read, so a map
+marking ghosts that way loads with none.
 
 Import is split into two functions. buildGameNet takes plain #RawPlace,
 #RawTrans, and #RawArc records and assembles a GameNet: it scale-fits all
 positions to the 950×780 canvas, builds the net, resolves playerStarts
 (all toolspecific playerStart elements > all initialMarking places > first
-place as fallback), and collects ghostSpawns. importPNML is a thin browser wrapper: it calls DOMParser to
-parse the XML string into a Document, extracts the raw records, then
-delegates to buildGameNet.
+place as fallback), and collects the ghostStart marking. importPNML is a thin browser
+wrapper: it calls DOMParser to parse the XML string into a Document,
+extracts the raw records, then delegates to buildGameNet.
 
 This split means the assembly logic is testable without a browser.
 importPNML itself cannot be claimed — DOMParser is not available in the
@@ -23,7 +30,7 @@ remains documented in prose rather than the claim layer.
 
 When loading vanilla PNML (no toolspecific extensions), safe defaults
 apply: every place gets a dot, the first marked place is added to
-playerStarts, and there are no ghost spawns.
+playerStarts, and there are no ghosts.
 
     function exportPNML(gn: GameNet, netName: string): string {
       const { net } = gn;
@@ -53,6 +60,9 @@ playerStarts, and there are no ghost spawns.
         lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
         lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
         if (gn.playerStarts.includes(p.id)) lines.push('          <playerStart/>');
+        const ghosts = tokenCount(gn.ghostStart, p.id);
+        if (ghosts === 1)  lines.push('          <ghostStart/>');
+        if (ghosts > 1)    lines.push(`          <ghostStart>${ghosts}</ghostStart>`);
         if (!gp.hasDot)             lines.push('          <hasDot>false</hasDot>');
         lines.push('        </toolspecific>');
         lines.push('      </place>');
@@ -63,11 +73,6 @@ playerStarts, and there are no ghost spawns.
         lines.push(`      <transition id="${escXml(t.id)}">`);
         lines.push(`        <name><text>${escXml(t.label)}</text></name>`);
         lines.push(`        <graphics><position x="${t.x}" y="${t.y}"/></graphics>`);
-        if (gn.ghostSpawns.includes(t.id)) {
-          lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
-          lines.push('          <ghostSpawn/>');
-          lines.push('        </toolspecific>');
-        }
         lines.push('      </transition>');
       }
 
@@ -92,8 +97,12 @@ playerStarts, and there are no ghost spawns.
               .replace(/"/g, '&quot;');
     }
 
-    type RawPlace = { id: string; label: string; x: number; y: number; hasDot: boolean; isStart: boolean; marking: number };
-    type RawTrans = { id: string; label: string; x: number; y: number; isSpawn: boolean };
+    type RawPlace = {
+      id: string; label: string; x: number; y: number;
+      hasDot: boolean; isStart: boolean; marking: number;
+      ghostStart?: number;    // ghosts that begin here; absent or 0 for none
+    };
+    type RawTrans = { id: string; label: string; x: number; y: number };
     type RawArc   = { id: string; src: string; tgt: string; weight: number };
 
     function buildGameNet(
@@ -142,9 +151,22 @@ playerStarts, and there are no ghost spawns.
       const playerStarts   = startEntries.map(e => e.id);
       const startMarkings  = new Map(startEntries.map(e => [e.id, e.count]));
 
-      const ghostSpawns = rawTrans.filter(t => t.isSpawn).map(t => t.id);
+      const ghostStart = emptyMarking();
+      for (const p of rawPlaces) {
+        if ((p.ghostStart ?? 0) > 0) markingAddTokens(ghostStart, p.id, p.ghostStart!);
+      }
 
-      return { net, playerStarts, startMarkings, ghostSpawns, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
+      return { net, playerStarts, startMarkings, ghostStart, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
+    }
+
+A ghostStart element with no text is one ghost, with a number its count, and a
+missing element is none; anything that does not read as a positive number
+counts as one, since the element is there.
+
+    function ghostCount(el: Element | null | undefined): number {
+      if (!el) return 0;
+      const n = parseInt(el.textContent?.trim() ?? '', 10);
+      return n > 0 ? n : 1;
     }
 
     function importPNML(xmlString: string): GameNet {
@@ -170,17 +192,16 @@ playerStarts, and there are no ghost spawns.
           hasDot:  ts ? ts.querySelector('hasDot')?.textContent?.trim() !== 'false' : true,
           isStart: !!ts?.querySelector('playerStart'),
           marking: parseInt(nodeText(el, 'initialMarking > text') || '0', 10),
+          ghostStart: ghostCount(ts?.querySelector('ghostStart')),
         });
       }
 
       const rawTrans: RawTrans[] = [];
       for (const el of doc.querySelectorAll('transition')) {
         const id = el.getAttribute('id') ?? '';
-        const ts = el.querySelector('toolspecific[tool="pn-chomper"]');
         rawTrans.push({
           id, label: nodeText(el, 'name > text') || id,
           ...nodePos(el),
-          isSpawn: !!ts?.querySelector('ghostSpawn'),
         });
       }
 
@@ -216,14 +237,18 @@ The buildGameNet examples below use hand-constructed raw records to verify
 assembly without a browser.
 
     const _rp1: RawPlace = { id: 'a', label: 'A', x: 0,   y: 0, hasDot: true,  isStart: true,  marking: 0 };
-    const _rp2: RawPlace = { id: 'b', label: 'B', x: 100, y: 0, hasDot: false, isStart: false, marking: 0 };
-    const _rt1: RawTrans = { id: 't', label: 'T', x: 50,  y: 0, isSpawn: true };
+    const _rp2: RawPlace = {
+      id: 'b', label: 'B', x: 100, y: 0, hasDot: false, isStart: false,
+      marking: 0, ghostStart: 2,
+    };
+    const _rt1: RawTrans = { id: 't', label: 'T', x: 50,  y: 0 };
     const _ra1: RawArc   = { id: 'arc1', src: 'a', tgt: 't', weight: 1 };
     const _builtGn = buildGameNet([_rp1, _rp2], [_rt1], [_ra1]);
 
 ~example
     _builtGn.playerStarts.includes('a')
-    _builtGn.ghostSpawns.includes('t')
+    tokenCount(_builtGn.ghostStart, 'b') === 2
+    tokenCount(_builtGn.ghostStart, 'a') === 0
     _builtGn.net.places.has('a')
     _builtGn.net.places.has('b')
     !(_builtGn.net.places.get('b') as GamePlace).hasDot
@@ -303,24 +328,23 @@ assembly without a browser.
       }
     ))
 
-~property ghostSpawns_match_isSpawn
+~property ghostStart_marking_matches_raw_counts
     fc.assert(fc.property(
-      fc.array(fc.boolean(), { minLength: 1, maxLength: 10 }),
-      (spawnValues) => {
-        const place: RawPlace = { id: 'p0', label: 'P0', x: 0, y: 0, hasDot: true, isStart: true, marking: 0 };
-        const trans: RawTrans[] = spawnValues.map((isSpawn, i) => ({
-          id: `t${i}`, label: `T${i}`, x: (i + 1) * 10, y: 0, isSpawn,
+      fc.array(fc.integer({ min: 0, max: 4 }), { minLength: 1, maxLength: 10 }),
+      (counts) => {
+        const places: RawPlace[] = counts.map((ghostStart, i) => ({
+          id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
+          hasDot: true, isStart: i === 0, marking: 0, ghostStart,
         }));
-        const gn = buildGameNet([place], trans, []);
-        const expected = trans.filter(t => t.isSpawn).map(t => t.id).sort().join();
-        return gn.ghostSpawns.slice().sort().join() === expected;
+        const gn = buildGameNet(places, [], []);
+        return counts.every((n, i) => tokenCount(gn.ghostStart, `p${i}`) === n);
       }
     ))
 
 ~example
     exportPNML(makeSplitMap(), 'Split').includes('<pnml')
     exportPNML(makeSplitMap(), 'Split').includes('playerStart')
-    exportPNML(makeSplitMap(), 'Split').includes('ghostSpawn')
+    exportPNML(makeSplitMap(), 'Split').includes('ghostStart')
     exportPNML(makeSplitMap(), 'Split').includes('<arc ')
 
 ~example
@@ -343,8 +367,12 @@ assembly without a browser.
 ##playerStart gets initialMarking 1, others get 0
     exportPNML(makeSplitMap(), 'Split').includes('<initialMarking><text>1</text></initialMarking>')
 
-##ghostSpawn transition is marked
-    exportPNML(makeSplitMap(), 'Split').includes('<ghostSpawn/>')
+##ghostStart place is marked, and no transition carries a spawn mark
+    exportPNML(makeSplitMap(), 'Split').includes('<ghostStart/>')
+    !exportPNML(makeSplitMap(), 'Split').includes('ghostSpawn')
+
+##a place with several ghosts exports its count
+    exportPNML(_builtGn, 'Two').includes('<ghostStart>2</ghostStart>')
 
 ##playerStart place is marked
     exportPNML(makeSplitMap(), 'Split').includes('<playerStart/>')
@@ -362,3 +390,4 @@ assembly without a browser.
 #References
     #Game Map
     #Petri Net
+    #Petri Marking

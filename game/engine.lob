@@ -226,7 +226,7 @@ that coupling is the point.
       addArc(net, 'o2', 'tb', 'y');
 
       const eng = makeEngine(
-        { net, playerStarts: ['start'], ghostSpawns: [] }
+        { net, playerStarts: ['start'], ghostStart: emptyMarking() }
       );
       eng.phase = 'ghost';
       eng.state.ghosts = emptyMarking();

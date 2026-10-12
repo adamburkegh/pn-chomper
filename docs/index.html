@@ -268,6 +268,11 @@
       gn.net.arcs.filter((a) => marked.has(a.source) || marked.has(a.target)).map((a) => a.id)
     );
   }
+  function ghostsOn(...placeIds) {
+    const m = emptyMarking();
+    for (const id of placeIds) markingAddTokens(m, id, 1);
+    return m;
+  }
   function gamePlace(net, id, label, x, y, hasDot = true) {
     const p = addPlace(net, id, label, x, y);
     p.hasDot = hasDot;
@@ -306,7 +311,7 @@
     addArc(net, "a14", "bm_t", "br");
     addArc(net, "a15", "br", "brs");
     addArc(net, "a16", "brs", "c");
-    return { net, ghostSpawns: ["tls"], playerStarts: ["c"] };
+    return { net, ghostStart: ghostsOn("tm"), playerStarts: ["c"] };
   }
   function makeSplitMap() {
     const net = makeNet();
@@ -335,7 +340,7 @@
     addArc(net, "b11", "t_rst_u", "start");
     addArc(net, "b12", "fin_lo", "t_rst_l");
     addArc(net, "b13", "t_rst_l", "start");
-    return { net, ghostSpawns: ["t_up"], playerStarts: ["start"] };
+    return { net, ghostStart: ghostsOn("fin_up"), playerStarts: ["start"] };
   }
   function makeDiamondMap() {
     const net = makeNet();
@@ -376,7 +381,7 @@
     addArc(net, "d18", "t_sync", "fin");
     addArc(net, "d19", "fin", "t_rst");
     addArc(net, "d20", "t_rst", "start");
-    return { net, ghostSpawns: ["t_sync"], playerStarts: ["start"] };
+    return { net, ghostStart: ghostsOn("fin"), playerStarts: ["start"] };
   }
   function makeCircuitMap() {
     const net = makeNet();
@@ -423,7 +428,7 @@
     addArc(net, "c22", "t_mid_dep", "depot");
     return {
       net,
-      ghostSpawns: ["t_sync"],
+      ghostStart: ghostsOn("east"),
       playerStarts: ["depot"],
       underpass: ["t_ne_mid", "t_se_mid", "t_mid_dep", "t_rst"]
     };
@@ -446,9 +451,8 @@
     gamePlace(net, "goal", "Goal", 405, 375);
     gamePlace(net, "mid", "Mid", 475, 640);
     gamePlace(net, "den", "Ghost Den", 50, 740, false);
-    gamePlace(net, "h4", "Handle 4", 156, 740, false);
-    gamePlace(net, "h3", "Handle 3", 262, 740, false);
-    gamePlace(net, "h2", "Handle 2", 368, 740, false);
+    gamePlace(net, "h3", "Handle 3", 190, 740, false);
+    gamePlace(net, "h2", "Handle 2", 333, 740, false);
     gamePlace(net, "h1", "Handle 1", 475, 740, false);
     addTransition(net, "t_fork0", "Fork", 475, 210);
     addTransition(net, "t_fork_n1", "Fork W", 200, 190);
@@ -466,10 +470,9 @@
     addTransition(net, "t_nec_esc", "NE Escape", 800, 620);
     addTransition(net, "t_sec_esc", "SE Escape", 620, 480);
     addTransition(net, "t_mid_home", "Mid->Home", 545, 375);
-    addTransition(net, "t_den_h4", "Den->H4", 103, 740);
-    addTransition(net, "t_h4_h3", "H4->H3", 209, 740);
-    addTransition(net, "t_h3_h2", "H3->H2", 315, 740);
-    addTransition(net, "t_h2_h1", "H2->H1", 421, 740);
+    addTransition(net, "t_den_h3", "Den->H3", 120, 740);
+    addTransition(net, "t_h3_h2", "H3->H2", 262, 740);
+    addTransition(net, "t_h2_h1", "H2->H1", 404, 740);
     addTransition(net, "t_h1_mid", "H1->Mid", 475, 690);
     addArc(net, "m1", "hub", "t_fork0");
     addArc(net, "m2", "t_fork0", "n1");
@@ -509,10 +512,8 @@
     addArc(net, "m36", "t_sec_esc", "mid");
     addArc(net, "m37", "mid", "t_mid_home");
     addArc(net, "m38", "t_mid_home", "hub");
-    addArc(net, "m39", "den", "t_den_h4");
-    addArc(net, "m40", "t_den_h4", "h4");
-    addArc(net, "m41", "h4", "t_h4_h3");
-    addArc(net, "m42", "t_h4_h3", "h3");
+    addArc(net, "m39", "den", "t_den_h3");
+    addArc(net, "m40", "t_den_h3", "h3");
     addArc(net, "m43", "h3", "t_h3_h2");
     addArc(net, "m44", "t_h3_h2", "h2");
     addArc(net, "m45", "h2", "t_h2_h1");
@@ -521,7 +522,7 @@
     addArc(net, "m48", "t_h1_mid", "mid");
     return {
       net,
-      ghostSpawns: ["t_den_h4"],
+      ghostStart: ghostsOn("den"),
       playerStarts: ["hub"],
       underpass: [
         "t_nwc_esc",
@@ -530,8 +531,7 @@
         "t_sec_esc",
         "t_mid_home",
         "t_rst",
-        "t_den_h4",
-        "t_h4_h3",
+        "t_den_h3",
         "t_h3_h2",
         "t_h2_h1",
         "t_h1_mid"
@@ -547,10 +547,8 @@
   }
   function spawnGhosts(gn) {
     const ghosts = emptyMarking();
-    for (const spawnId of gn.ghostSpawns) {
-      const outgoing = outputArcs(gn.net, spawnId);
-      if (outgoing.length > 0)
-        markingAddTokens(ghosts, outgoing[0].target, 1);
+    for (const [placeId, count] of gn.ghostStart) {
+      markingAddTokens(ghosts, placeId, count);
     }
     return ghosts;
   }
@@ -643,6 +641,15 @@
     }
     engine.phase = "ghost";
   }
+  const _afterCollisionAtNw = (() => {
+    const eng = makeEngine(makeCircuitMap());
+    eng.state.dots.clear();
+    eng.state.dots.add("nw");
+    eng.state.ghosts = emptyMarking();
+    markingAddTokens(eng.state.ghosts, "nw", 1);
+    playerMove(eng, "t_fork");
+    return eng;
+  })();
   function ghostTurn(engine, rng = Math.random) {
     if (engine.phase !== "ghost") return;
     const { state } = engine;
@@ -1134,6 +1141,9 @@
       lines.push(`        <initialMarking><text>${marking}</text></initialMarking>`);
       lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
       if (gn.playerStarts.includes(p.id)) lines.push("          <playerStart/>");
+      const ghosts = tokenCount(gn.ghostStart, p.id);
+      if (ghosts === 1) lines.push("          <ghostStart/>");
+      if (ghosts > 1) lines.push(`          <ghostStart>${ghosts}</ghostStart>`);
       if (!gp.hasDot) lines.push("          <hasDot>false</hasDot>");
       lines.push("        </toolspecific>");
       lines.push("      </place>");
@@ -1142,11 +1152,6 @@
       lines.push(`      <transition id="${escXml(t.id)}">`);
       lines.push(`        <name><text>${escXml(t.label)}</text></name>`);
       lines.push(`        <graphics><position x="${t.x}" y="${t.y}"/></graphics>`);
-      if (gn.ghostSpawns.includes(t.id)) {
-        lines.push('        <toolspecific tool="pn-chomper" version="1.0">');
-        lines.push("          <ghostSpawn/>");
-        lines.push("        </toolspecific>");
-      }
       lines.push("      </transition>");
     }
     for (const arc of net.arcs) {
@@ -1202,8 +1207,16 @@
     }
     const playerStarts = startEntries.map((e) => e.id);
     const startMarkings = new Map(startEntries.map((e) => [e.id, e.count]));
-    const ghostSpawns = rawTrans.filter((t) => t.isSpawn).map((t) => t.id);
-    return { net, playerStarts, startMarkings, ghostSpawns, ...nodeRadius !== void 0 ? { nodeRadius } : {} };
+    const ghostStart = emptyMarking();
+    for (const p of rawPlaces) {
+      if ((p.ghostStart ?? 0) > 0) markingAddTokens(ghostStart, p.id, p.ghostStart);
+    }
+    return { net, playerStarts, startMarkings, ghostStart, ...nodeRadius !== void 0 ? { nodeRadius } : {} };
+  }
+  function ghostCount(el) {
+    if (!el) return 0;
+    const n = parseInt(el.textContent?.trim() ?? "", 10);
+    return n > 0 ? n : 1;
   }
   function importPNML(xmlString) {
     const doc = new DOMParser().parseFromString(xmlString, "application/xml");
@@ -1226,18 +1239,17 @@
         ...nodePos(el),
         hasDot: ts ? ts.querySelector("hasDot")?.textContent?.trim() !== "false" : true,
         isStart: !!ts?.querySelector("playerStart"),
-        marking: parseInt(nodeText(el, "initialMarking > text") || "0", 10)
+        marking: parseInt(nodeText(el, "initialMarking > text") || "0", 10),
+        ghostStart: ghostCount(ts?.querySelector("ghostStart"))
       });
     }
     const rawTrans = [];
     for (const el of doc.querySelectorAll("transition")) {
       const id = el.getAttribute("id") ?? "";
-      const ts = el.querySelector('toolspecific[tool="pn-chomper"]');
       rawTrans.push({
         id,
         label: nodeText(el, "name > text") || id,
-        ...nodePos(el),
-        isSpawn: !!ts?.querySelector("ghostSpawn")
+        ...nodePos(el)
       });
     }
     const rawArcs = [];
@@ -1264,8 +1276,17 @@
     URL.revokeObjectURL(url);
   }
   const _rp1 = { id: "a", label: "A", x: 0, y: 0, hasDot: true, isStart: true, marking: 0 };
-  const _rp2 = { id: "b", label: "B", x: 100, y: 0, hasDot: false, isStart: false, marking: 0 };
-  const _rt1 = { id: "t", label: "T", x: 50, y: 0, isSpawn: true };
+  const _rp2 = {
+    id: "b",
+    label: "B",
+    x: 100,
+    y: 0,
+    hasDot: false,
+    isStart: false,
+    marking: 0,
+    ghostStart: 2
+  };
+  const _rt1 = { id: "t", label: "T", x: 50, y: 0 };
   const _ra1 = { id: "arc1", src: "a", tgt: "t", weight: 1 };
   const _builtGn = buildGameNet([_rp1, _rp2], [_rt1], [_ra1]);
   function hitTestTransition(net, x, y) {
