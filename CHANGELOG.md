@@ -13,6 +13,13 @@
   maps behave as before, since each ghost starts where its spawn transition
   used to put it. Mandala's tail loses one handle place so the ghost can begin
   in the Den and still be five hops from Hub.
+- **Dots are a count per place**: like chompers and ghosts, the dots to eat
+  are a marking over the net. A place can hold more than one, shown with a
+  small number beside the pellet, and eating them scores ten each. In PNML
+  `<dots>n</dots>` replaces `<hasDot>false</hasDot>`: `<dots>0</dots>`
+  suppresses the dot and a place with no element has one. This is a breaking
+  change to the PNML format: `hasDot` is no longer read, so a map that used it
+  loads with a dot on every place.
 
 ### Fixed
 

@@ -262,17 +262,19 @@ on top of the corridor already underneath and show up as a brighter patch.
 ##Drawing Places
 
 Places are circles. The colour signals status: dark (empty), pellet visible
-(has dot), chomper present, ghost present. Dot and chomper presence are
-read from the #Game State marking; hasDot and nodeRadius come from the
-#Game Map layer. When both a chomper and a ghost share a place, the ghost
-is rendered above the chomper to make the danger immediately legible. When multiple chomper tokens occupy one place, a single chomper
-icon is drawn with the count printed on its body — only shown when greater
-than one, keeping the single-token case visually clean.
+(has dots), chomper present, ghost present. Dot, chomper and ghost counts are
+read from the #Game State markings; nodeRadius comes from the #Game Map layer.
+When both a chomper and a ghost share a place, the ghost is rendered above
+the chomper to make the danger immediately legible. When multiple chomper
+tokens occupy one place, a single chomper icon is drawn with the count
+printed on its body — only shown when greater than one, keeping the
+single-token case visually clean. Dots follow the same rule: one pellet for
+any number, with the count beside it only when there is more than one.
 
     function drawPlace(
       ctx: CanvasRenderingContext2D,
       p: Place,
-      hasDot: boolean,
+      dots: number,
       chompers: number,
       ghosts: number,
       radius = 24,
@@ -286,11 +288,17 @@ than one, keeping the single-token case visually clean.
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      if (hasDot && chompers === 0) {
+      if (dots > 0 && chompers === 0) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
         ctx.fillStyle = '#ffee88';
         ctx.fill();
+        if (dots > 1) {
+          ctx.fillStyle = '#ffee88';
+          ctx.font = 'bold 10px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(String(dots), p.x + 9, p.y + 4);
+        }
       }
 
       // Draw ghosts first (below), chompers on top
@@ -568,10 +576,9 @@ one smooth curve instead of an S.
 
       // Places (on top of corridors)
       for (const p of net.places.values()) {
-        const gp = p as GamePlace;
         drawPlace(
           ctx, p,
-          gp.hasDot && state.dots.has(p.id),
+          tokenCount(state.dots, p.id),
           tokenCount(state.chompers, p.id),
           tokenCount(state.ghosts, p.id),
           nodeRadius,

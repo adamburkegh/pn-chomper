@@ -56,12 +56,12 @@ playing greedily is a meaningfully stronger signal than losing to random
 chance.
 
     type PlayerPolicy = (
-      net: PetriNet, chompers: Marking, dots: Set<string>,
+      net: PetriNet, chompers: Marking, dots: Marking,
       rng: () => number,
     ) => string | null;
 
     function randomPolicy(
-      net: PetriNet, chompers: Marking, _dots: Set<string>, rng: () => number,
+      net: PetriNet, chompers: Marking, _dots: Marking, rng: () => number,
     ): string | null {
       const enabled = enabledTransitions(net, chompers);
       if (enabled.length === 0) return null;
@@ -69,11 +69,15 @@ chance.
     }
 
     function nearestDotDistances(
-      net: PetriNet, dots: Set<string>,
+      net: PetriNet, dots: Marking,
     ): Map<string, number> {
       const dist = new Map<string, number>();
       const queue: string[] = [];
-      for (const d of dots) { dist.set(d, 0); queue.push(d); }
+      // A place a dot was eaten from stays in the marking at zero, so
+      // only places that still hold one count as a source.
+      for (const [d, n] of dots) {
+        if (n > 0) { dist.set(d, 0); queue.push(d); }
+      }
       let head = 0;
       while (head < queue.length) {
         const cur = queue[head++];
@@ -89,11 +93,11 @@ chance.
     }
 
     function greedyPolicy(
-      net: PetriNet, chompers: Marking, dots: Set<string>, rng: () => number,
+      net: PetriNet, chompers: Marking, dots: Marking, rng: () => number,
     ): string | null {
       const enabled = enabledTransitions(net, chompers);
       if (enabled.length === 0) return null;
-      if (dots.size === 0) return enabled[0];
+      if (markingTotal(dots) === 0) return enabled[0];
 
       const dist = nearestDotDistances(net, dots);
       let best: string[] = [];

@@ -102,8 +102,8 @@ not collect the dot regardless of which output arm or which map is used.
         const eng = makeEngine(gn);
         eng.state.chompers = emptyMarking();
         markingAddTokens(eng.state.chompers, forkInput, 1);
-        eng.state.dots.clear();
-        eng.state.dots.add(ghostPlace);
+        eng.state.dots = emptyMarking();
+        markingAddTokens(eng.state.dots, ghostPlace, 1);
         eng.state.ghosts = emptyMarking();
         markingAddTokens(eng.state.ghosts, ghostPlace, 1);
         playerMove(eng, forkTid);
@@ -116,8 +116,8 @@ continues rather than ending in a win, and nw is recorded as the eaten place.
 
     const _afterCollisionAtNw = (() => {
       const eng = makeEngine(makeCircuitMap());
-      eng.state.dots.clear();
-      eng.state.dots.add('nw');
+      eng.state.dots = emptyMarking();
+      markingAddTokens(eng.state.dots, 'nw', 1);
       eng.state.ghosts = emptyMarking();
       markingAddTokens(eng.state.ghosts, 'nw', 1);
       playerMove(eng, 't_fork');
@@ -226,7 +226,10 @@ that coupling is the point.
       addArc(net, 'o2', 'tb', 'y');
 
       const eng = makeEngine(
-        { net, playerStarts: ['start'], ghostStart: emptyMarking() }
+        {
+          net, playerStarts: ['start'],
+          ghostStart: emptyMarking(), dotStart: emptyMarking(),
+        }
       );
       eng.phase = 'ghost';
       eng.state.ghosts = emptyMarking();

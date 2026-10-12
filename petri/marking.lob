@@ -39,6 +39,16 @@ is perfectly valid Petri net semantics, and makes for interesting gameplay.
       m.set(placeId, current - count);
     }
 
+Removing the last token from a place leaves a zero entry behind rather than
+deleting it, so whether a marking is empty is a question about the total, not
+about its size.
+
+    function markingTotal(m: Marking): number {
+      let total = 0;
+      for (const n of m.values()) total += n;
+      return total;
+    }
+
 ##Enabling and Firing
 
 A transition is enabled when each of its input places holds at least as
@@ -88,6 +98,13 @@ The marking examples below reuse the split net defined in #Petri Net
       const empty = emptyMarking();
       try { fire(_testNet, empty, 't1'); return false; }
       catch { return true; }
+    }
+
+    function _emptiedMarking(): Marking {
+      const m = emptyMarking();
+      markingAddTokens(m, 'p1', 2);
+      markingRemoveTokens(m, 'p1', 2);
+      return m;
     }
 
     function _setTokensNegativeThrows(): boolean {
@@ -160,6 +177,11 @@ checks that no place's token count goes negative after a fire.
 
 ##setTokens rejects negative counts
     _setTokensNegativeThrows()
+
+##markingTotal counts every token, and ignores places emptied to zero
+    markingTotal(emptyMarking()) === 0
+    markingTotal(_m1) === 2
+    markingTotal(_emptiedMarking()) === 0
 
 #References
     #Petri Net

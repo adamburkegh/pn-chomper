@@ -241,6 +241,11 @@
     );
     m.set(placeId, current - count);
   }
+  function markingTotal(m) {
+    let total = 0;
+    for (const n of m.values()) total += n;
+    return total;
+  }
   function isEnabled(net, marking, transitionId) {
     return inputArcs(net, transitionId).every(
       (arc) => tokenCount(marking, arc.source) >= arc.weight
@@ -273,10 +278,18 @@
     for (const id of placeIds) markingAddTokens(m, id, 1);
     return m;
   }
-  function gamePlace(net, id, label, x, y, hasDot = true) {
+  function gamePlace(net, id, label, x, y, dots = true) {
     const p = addPlace(net, id, label, x, y);
-    p.hasDot = hasDot;
+    p.dots = typeof dots === "number" ? dots : dots ? 1 : 0;
     return p;
+  }
+  function dotsOf(net) {
+    const m = emptyMarking();
+    for (const p of net.places.values()) {
+      const n = p.dots ?? 0;
+      if (n > 0) markingAddTokens(m, p.id, n);
+    }
+    return m;
   }
   function makeClassicMap() {
     const net = makeNet();
@@ -311,7 +324,12 @@
     addArc(net, "a14", "bm_t", "br");
     addArc(net, "a15", "br", "brs");
     addArc(net, "a16", "brs", "c");
-    return { net, ghostStart: ghostsOn("tm"), playerStarts: ["c"] };
+    return {
+      net,
+      ghostStart: ghostsOn("tm"),
+      dotStart: dotsOf(net),
+      playerStarts: ["c"]
+    };
   }
   function makeSplitMap() {
     const net = makeNet();
@@ -340,7 +358,12 @@
     addArc(net, "b11", "t_rst_u", "start");
     addArc(net, "b12", "fin_lo", "t_rst_l");
     addArc(net, "b13", "t_rst_l", "start");
-    return { net, ghostStart: ghostsOn("fin_up"), playerStarts: ["start"] };
+    return {
+      net,
+      ghostStart: ghostsOn("fin_up"),
+      dotStart: dotsOf(net),
+      playerStarts: ["start"]
+    };
   }
   function makeDiamondMap() {
     const net = makeNet();
@@ -381,7 +404,12 @@
     addArc(net, "d18", "t_sync", "fin");
     addArc(net, "d19", "fin", "t_rst");
     addArc(net, "d20", "t_rst", "start");
-    return { net, ghostStart: ghostsOn("fin"), playerStarts: ["start"] };
+    return {
+      net,
+      ghostStart: ghostsOn("fin"),
+      dotStart: dotsOf(net),
+      playerStarts: ["start"]
+    };
   }
   function makeCircuitMap() {
     const net = makeNet();
@@ -429,6 +457,7 @@
     return {
       net,
       ghostStart: ghostsOn("east"),
+      dotStart: dotsOf(net),
       playerStarts: ["depot"],
       underpass: ["t_ne_mid", "t_se_mid", "t_mid_dep", "t_rst"]
     };
@@ -523,6 +552,7 @@
     return {
       net,
       ghostStart: ghostsOn("den"),
+      dotStart: dotsOf(net),
       playerStarts: ["hub"],
       underpass: [
         "t_nwc_esc",
@@ -555,16 +585,18 @@
   function initState(gn, lives = 3) {
     const chompers = spawnChompers(gn);
     const ghosts = spawnGhosts(gn);
-    const dots = new Set(
-      [...gn.net.places.values()].filter((p) => p.hasDot).map((p) => p.id)
-    );
+    const dots = emptyMarking();
+    for (const [placeId, count] of gn.dotStart) {
+      markingAddTokens(dots, placeId, count);
+    }
     return { gn, chompers, ghosts, dots, score: 0, lives };
   }
   function eatDots(state) {
     for (const [placeId, count] of state.chompers) {
-      if (count > 0 && state.dots.has(placeId)) {
-        state.dots.delete(placeId);
-        state.score += 10;
+      const here = tokenCount(state.dots, placeId);
+      if (count > 0 && here > 0) {
+        markingRemoveTokens(state.dots, placeId, here);
+        state.score += 10 * here;
       }
     }
   }
@@ -591,12 +623,11 @@
     return eaten;
   }
   function isDeadlocked(state) {
-    const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
-    if (total === 0) return false;
+    if (markingTotal(state.chompers) === 0) return false;
     return enabledTransitions(state.gn.net, state.chompers).length === 0;
   }
   function isWon(state) {
-    return state.dots.size === 0;
+    return markingTotal(state.dots) === 0;
   }
   function isLost(state) {
     return state.lives <= 0;
@@ -643,8 +674,8 @@
   }
   const _afterCollisionAtNw = (() => {
     const eng = makeEngine(makeCircuitMap());
-    eng.state.dots.clear();
-    eng.state.dots.add("nw");
+    eng.state.dots = emptyMarking();
+    markingAddTokens(eng.state.dots, "nw", 1);
     eng.state.ghosts = emptyMarking();
     markingAddTokens(eng.state.ghosts, "nw", 1);
     playerMove(eng, "t_fork");
@@ -846,7 +877,7 @@
     ctx.stroke();
     ctx.restore();
   }
-  function drawPlace(ctx, p, hasDot, chompers, ghosts, radius = 24, showLabel = false) {
+  function drawPlace(ctx, p, dots, chompers, ghosts, radius = 24, showLabel = false) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fillStyle = "#1a1a1a";
@@ -854,11 +885,17 @@
     ctx.strokeStyle = chompers > 0 ? "#9a9aa2" : "#707078";
     ctx.lineWidth = 2;
     ctx.stroke();
-    if (hasDot && chompers === 0) {
+    if (dots > 0 && chompers === 0) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
       ctx.fillStyle = "#ffee88";
       ctx.fill();
+      if (dots > 1) {
+        ctx.fillStyle = "#ffee88";
+        ctx.font = "bold 10px monospace";
+        ctx.textAlign = "left";
+        ctx.fillText(String(dots), p.x + 9, p.y + 4);
+      }
     }
     for (let j = 0; j < ghosts; j++) {
       const ox = (j - (ghosts - 1) / 2) * 16;
@@ -1051,11 +1088,10 @@
       );
     }
     for (const p of net.places.values()) {
-      const gp = p;
       drawPlace(
         ctx,
         p,
-        gp.hasDot && state.dots.has(p.id),
+        tokenCount(state.dots, p.id),
         tokenCount(state.chompers, p.id),
         tokenCount(state.ghosts, p.id),
         nodeRadius,
@@ -1133,7 +1169,6 @@
     lines.push("    </toolspecific>");
     lines.push('    <page id="page1">');
     for (const p of net.places.values()) {
-      const gp = p;
       lines.push(`      <place id="${escXml(p.id)}">`);
       lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
       lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
@@ -1144,7 +1179,8 @@
       const ghosts = tokenCount(gn.ghostStart, p.id);
       if (ghosts === 1) lines.push("          <ghostStart/>");
       if (ghosts > 1) lines.push(`          <ghostStart>${ghosts}</ghostStart>`);
-      if (!gp.hasDot) lines.push("          <hasDot>false</hasDot>");
+      const dots = tokenCount(gn.dotStart, p.id);
+      if (dots !== 1) lines.push(`          <dots>${dots}</dots>`);
       lines.push("        </toolspecific>");
       lines.push("      </place>");
     }
@@ -1182,7 +1218,7 @@
     const net = makeNet();
     for (const p of rawPlaces) {
       const gp = addPlace(net, p.id, p.label, fx(p.x), fy(p.y));
-      gp.hasDot = p.hasDot;
+      gp.dots = p.dots;
     }
     for (const t of rawTrans) {
       addTransition(net, t.id, t.label, fx(t.x), fy(t.y));
@@ -1211,12 +1247,25 @@
     for (const p of rawPlaces) {
       if ((p.ghostStart ?? 0) > 0) markingAddTokens(ghostStart, p.id, p.ghostStart);
     }
-    return { net, playerStarts, startMarkings, ghostStart, ...nodeRadius !== void 0 ? { nodeRadius } : {} };
+    const dotStart = dotsOf(net);
+    return {
+      net,
+      playerStarts,
+      startMarkings,
+      ghostStart,
+      dotStart,
+      ...nodeRadius !== void 0 ? { nodeRadius } : {}
+    };
   }
   function ghostCount(el) {
     if (!el) return 0;
     const n = parseInt(el.textContent?.trim() ?? "", 10);
     return n > 0 ? n : 1;
+  }
+  function dotCount(el) {
+    if (!el) return 1;
+    const n = parseInt(el.textContent?.trim() ?? "", 10);
+    return Number.isNaN(n) || n < 0 ? 1 : n;
   }
   function importPNML(xmlString) {
     const doc = new DOMParser().parseFromString(xmlString, "application/xml");
@@ -1237,7 +1286,7 @@
         id,
         label: nodeText(el, "name > text") || id,
         ...nodePos(el),
-        hasDot: ts ? ts.querySelector("hasDot")?.textContent?.trim() !== "false" : true,
+        dots: dotCount(ts?.querySelector("dots")),
         isStart: !!ts?.querySelector("playerStart"),
         marking: parseInt(nodeText(el, "initialMarking > text") || "0", 10),
         ghostStart: ghostCount(ts?.querySelector("ghostStart"))
@@ -1275,13 +1324,13 @@
     a.click();
     URL.revokeObjectURL(url);
   }
-  const _rp1 = { id: "a", label: "A", x: 0, y: 0, hasDot: true, isStart: true, marking: 0 };
+  const _rp1 = { id: "a", label: "A", x: 0, y: 0, dots: 1, isStart: true, marking: 0 };
   const _rp2 = {
     id: "b",
     label: "B",
     x: 100,
     y: 0,
-    hasDot: false,
+    dots: 3,
     isStart: false,
     marking: 0,
     ghostStart: 2

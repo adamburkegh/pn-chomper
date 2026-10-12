@@ -5,7 +5,7 @@ nets. This module handles both export and import.
 
 Export serialises a GameNet to a PNML string. The standard elements carry the
 net topology and layout positions. Game-specific data (playerStart,
-ghostStart, hasDot, nodeRadius) lives in toolspecific elements so vanilla
+ghostStart, dots, nodeRadius) lives in toolspecific elements so vanilla
 PNML readers ignore it cleanly.
 
 Both kinds of token start the same way, as a mark on a place: playerStart for
@@ -52,7 +52,6 @@ playerStarts, and there are no ghosts.
 
       // Places
       for (const p of net.places.values()) {
-        const gp = p as GamePlace;
         lines.push(`      <place id="${escXml(p.id)}">`);
         lines.push(`        <name><text>${escXml(p.label)}</text></name>`);
         lines.push(`        <graphics><position x="${p.x}" y="${p.y}"/></graphics>`);
@@ -63,7 +62,9 @@ playerStarts, and there are no ghosts.
         const ghosts = tokenCount(gn.ghostStart, p.id);
         if (ghosts === 1)  lines.push('          <ghostStart/>');
         if (ghosts > 1)    lines.push(`          <ghostStart>${ghosts}</ghostStart>`);
-        if (!gp.hasDot)             lines.push('          <hasDot>false</hasDot>');
+        // One dot per place is the default, so only a different count is written.
+        const dots = tokenCount(gn.dotStart, p.id);
+        if (dots !== 1)    lines.push(`          <dots>${dots}</dots>`);
         lines.push('        </toolspecific>');
         lines.push('      </place>');
       }
@@ -99,7 +100,7 @@ playerStarts, and there are no ghosts.
 
     type RawPlace = {
       id: string; label: string; x: number; y: number;
-      hasDot: boolean; isStart: boolean; marking: number;
+      dots: number; isStart: boolean; marking: number;
       ghostStart?: number;    // ghosts that begin here; absent or 0 for none
     };
     type RawTrans = { id: string; label: string; x: number; y: number };
@@ -126,7 +127,7 @@ playerStarts, and there are no ghosts.
       const net = makeNet();
       for (const p of rawPlaces) {
         const gp = addPlace(net, p.id, p.label, fx(p.x), fy(p.y)) as GamePlace;
-        gp.hasDot = p.hasDot;
+        gp.dots = p.dots;
       }
       for (const t of rawTrans) {
         addTransition(net, t.id, t.label, fx(t.x), fy(t.y));
@@ -156,7 +157,12 @@ playerStarts, and there are no ghosts.
         if ((p.ghostStart ?? 0) > 0) markingAddTokens(ghostStart, p.id, p.ghostStart!);
       }
 
-      return { net, playerStarts, startMarkings, ghostStart, ...(nodeRadius !== undefined ? { nodeRadius } : {}) };
+      const dotStart = dotsOf(net);
+
+      return {
+        net, playerStarts, startMarkings, ghostStart, dotStart,
+        ...(nodeRadius !== undefined ? { nodeRadius } : {}),
+      };
     }
 
 A ghostStart element with no text is one ghost, with a number its count, and a
@@ -167,6 +173,15 @@ counts as one, since the element is there.
       if (!el) return 0;
       const n = parseInt(el.textContent?.trim() ?? '', 10);
       return n > 0 ? n : 1;
+    }
+
+A place has one dot unless its dots element says otherwise: no element, or no
+number in it, is one, and a number is that many, zero suppressing the dot.
+
+    function dotCount(el: Element | null | undefined): number {
+      if (!el) return 1;
+      const n = parseInt(el.textContent?.trim() ?? '', 10);
+      return Number.isNaN(n) || n < 0 ? 1 : n;
     }
 
     function importPNML(xmlString: string): GameNet {
@@ -189,7 +204,7 @@ counts as one, since the element is there.
         rawPlaces.push({
           id, label: nodeText(el, 'name > text') || id,
           ...nodePos(el),
-          hasDot:  ts ? ts.querySelector('hasDot')?.textContent?.trim() !== 'false' : true,
+          dots:    dotCount(ts?.querySelector('dots')),
           isStart: !!ts?.querySelector('playerStart'),
           marking: parseInt(nodeText(el, 'initialMarking > text') || '0', 10),
           ghostStart: ghostCount(ts?.querySelector('ghostStart')),
@@ -236,9 +251,9 @@ counts as one, since the element is there.
 The buildGameNet examples below use hand-constructed raw records to verify
 assembly without a browser.
 
-    const _rp1: RawPlace = { id: 'a', label: 'A', x: 0,   y: 0, hasDot: true,  isStart: true,  marking: 0 };
+    const _rp1: RawPlace = { id: 'a', label: 'A', x: 0,   y: 0, dots: 1, isStart: true,  marking: 0 };
     const _rp2: RawPlace = {
-      id: 'b', label: 'B', x: 100, y: 0, hasDot: false, isStart: false,
+      id: 'b', label: 'B', x: 100, y: 0, dots: 3, isStart: false,
       marking: 0, ghostStart: 2,
     };
     const _rt1: RawTrans = { id: 't', label: 'T', x: 50,  y: 0 };
@@ -251,7 +266,8 @@ assembly without a browser.
     tokenCount(_builtGn.ghostStart, 'a') === 0
     _builtGn.net.places.has('a')
     _builtGn.net.places.has('b')
-    !(_builtGn.net.places.get('b') as GamePlace).hasDot
+    tokenCount(_builtGn.dotStart, 'a') === 1
+    tokenCount(_builtGn.dotStart, 'b') === 3
     _builtGn.net.arcs.length === 1
 
 ~property playerStarts_from_isStart
@@ -261,7 +277,7 @@ assembly without a browser.
       (startIdx, total) => {
         const places: RawPlace[] = Array.from({ length: total }, (_, i) => ({
           id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
-          hasDot: true, isStart: i === startIdx % total, marking: 0,
+          dots: 1, isStart: i === startIdx % total, marking: 0,
         }));
         const gn = buildGameNet(places, [], []);
         return gn.playerStarts.includes(`p${startIdx % total}`);
@@ -274,7 +290,7 @@ assembly without a browser.
       (isStartFlags) => {
         const places: RawPlace[] = isStartFlags.map((isStart, i) => ({
           id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
-          hasDot: true, isStart, marking: 0,
+          dots: 1, isStart, marking: 0,
         }));
         const gn = buildGameNet(places, [], []);
         const expected = places.filter(p => p.isStart).map(p => p.id);
@@ -289,7 +305,7 @@ assembly without a browser.
       (coords) => {
         const places: RawPlace[] = coords.map((c, i) => ({
           id: `p${i}`, label: `P${i}`, x: c.x, y: c.y,
-          hasDot: true, isStart: i === 0, marking: 0,
+          dots: 1, isStart: i === 0, marking: 0,
         }));
         const gn = buildGameNet(places, [], []);
         const PAD = 80, CW = 950, CH = 780, EPS = 1e-9;
@@ -306,25 +322,23 @@ assembly without a browser.
       (n) => {
         const places: RawPlace[] = Array.from({ length: n }, (_, i) => ({
           id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
-          hasDot: true, isStart: i === 0, marking: 0,
+          dots: 1, isStart: i === 0, marking: 0,
         }));
         const gn = buildGameNet(places, [], []);
         return places.every(p => gn.net.places.has(p.id));
       }
     ))
 
-~property hasDot_values_preserved
+~property dotStart_marking_matches_raw_counts
     fc.assert(fc.property(
-      fc.array(fc.boolean(), { minLength: 1, maxLength: 10 }),
-      (dotValues) => {
-        const places: RawPlace[] = dotValues.map((hasDot, i) => ({
+      fc.array(fc.integer({ min: 0, max: 4 }), { minLength: 1, maxLength: 10 }),
+      (counts) => {
+        const places: RawPlace[] = counts.map((dots, i) => ({
           id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
-          hasDot, isStart: i === 0, marking: 0,
+          dots, isStart: i === 0, marking: 0,
         }));
         const gn = buildGameNet(places, [], []);
-        return places.every(p =>
-          (gn.net.places.get(p.id) as GamePlace).hasDot === p.hasDot
-        );
+        return counts.every((n, i) => tokenCount(gn.dotStart, `p${i}`) === n);
       }
     ))
 
@@ -334,7 +348,7 @@ assembly without a browser.
       (counts) => {
         const places: RawPlace[] = counts.map((ghostStart, i) => ({
           id: `p${i}`, label: `P${i}`, x: i * 10, y: 0,
-          hasDot: true, isStart: i === 0, marking: 0, ghostStart,
+          dots: 1, isStart: i === 0, marking: 0, ghostStart,
         }));
         const gn = buildGameNet(places, [], []);
         return counts.every((n, i) => tokenCount(gn.ghostStart, `p${i}`) === n);
@@ -349,7 +363,8 @@ assembly without a browser.
 
 ~example
     exportPNML(makeGridMap(), 'Grid').includes('<nodeRadius>12</nodeRadius>')
-    exportPNML(makeGridMap(), 'Grid').includes('hasDot>false</hasDot')
+    exportPNML(makeGridMap(), 'Grid').includes('<dots>0</dots>')
+    exportPNML(_builtGn, 'Dots').includes('<dots>3</dots>')
 
 ---
 

@@ -1,9 +1,11 @@
 #Game Map
 
-A game map is a Petri net with additional decoration for the game: each place
-knows whether it contains a dot for the player to eat, and a place can be
-marked as where a chomper or a ghost starts. The net topology is the maze; the
-decorations are the game-layer metadata.
+A game map is a Petri net with additional decoration for the game: the places
+that hold dots for the player to eat, and the places where a chomper or a ghost
+starts. The net topology is the maze; the decorations are the game-layer
+metadata. Each kind of start is a marking over the net's places, one for
+chompers, one for ghosts and one for dots, and the game state begins from
+them.
 
 Several built-in maps are supplied. The Classic map is a figure-eight. The
 Split map demonstrates token splitting with a Y-junction and long restart
@@ -14,12 +16,13 @@ cannot be drawn without crossing their forward corridors, so each names it
 (see underpass below) and is drawn with it as a second plane.
 
     interface GamePlace extends Place {
-      hasDot: boolean;
+      dots: number;           // dots on this place at the start of a game
     }
 
     interface GameNet {
       net: PetriNet;
       ghostStart: Marking;            // where ghosts begin, as a marking
+      dotStart: Marking;              // where the dots to eat begin
       playerStarts: string[];         // place ids where player tokens begin
       startMarkings?: Map<string, number>; // token count per start place (default 1)
       nodeRadius?: number;            // override place drawing radius (default 24)
@@ -56,13 +59,27 @@ which is all any of the built-in maps needs.
       return m;
     }
 
+The dots are authored on the places: a place gets one dot by default, none if
+passed false, or a count. dotsOf gathers them into the dot marking a map
+returns, so the places stay the single place a map's author says where the
+dots are, and the game state only ever reads the marking.
+
     function gamePlace(
       net: PetriNet, id: string, label: string,
-      x: number, y: number, hasDot = true,
+      x: number, y: number, dots: boolean | number = true,
     ): GamePlace {
       const p = addPlace(net, id, label, x, y) as GamePlace;
-      p.hasDot = hasDot;
+      p.dots = typeof dots === 'number' ? dots : dots ? 1 : 0;
       return p;
+    }
+
+    function dotsOf(net: PetriNet): Marking {
+      const m = emptyMarking();
+      for (const p of net.places.values()) {
+        const n = (p as GamePlace).dots ?? 0;
+        if (n > 0) markingAddTokens(m, p.id, n);
+      }
+      return m;
     }
 
 ##Classic Map
@@ -117,7 +134,10 @@ starts at Centre; one ghost starts at Top Mid, well away from the player.
       addArc(net, 'a16', 'brs', 'c');
 
       // Ghost starts at Top Mid, far from player start Centre
-      return { net, ghostStart: ghostsOn('tm'), playerStarts: ['c'] };
+      return {
+        net, ghostStart: ghostsOn('tm'), dotStart: dotsOf(net),
+        playerStarts: ['c'],
+      };
     }
 
 ##Split Map
@@ -171,7 +191,10 @@ long to make the return journey feel like a proper map traversal.
       addArc(net, 'b13','t_rst_l','start');
 
       // Ghost starts at Finish Upper (far from Start)
-      return { net, ghostStart: ghostsOn('fin_up'), playerStarts: ['start'] };
+      return {
+        net, ghostStart: ghostsOn('fin_up'), dotStart: dotsOf(net),
+        playerStarts: ['start'],
+      };
     }
 
 ##Diamond Map
@@ -320,7 +343,10 @@ what to move instead of only that something is wrong.
       addArc(net, 'd19', 'fin',   't_rst');
       addArc(net, 'd20', 't_rst', 'start');
 
-      return { net, ghostStart: ghostsOn('fin'), playerStarts: ['start'] };
+      return {
+        net, ghostStart: ghostsOn('fin'), dotStart: dotsOf(net),
+        playerStarts: ['start'],
+      };
     }
 
 ##Circuit Map
@@ -393,7 +419,8 @@ of it.
       addArc(net, 'c22', 't_mid_dep','depot');
 
       return {
-        net, ghostStart: ghostsOn('east'), playerStarts: ['depot'],
+        net, ghostStart: ghostsOn('east'), dotStart: dotsOf(net),
+        playerStarts: ['depot'],
         underpass: ['t_ne_mid', 't_se_mid', 't_mid_dep', 't_rst'],
       };
     }
@@ -594,7 +621,8 @@ cross anywhere.
       // guaranteed hops from Hub (via Mid), not one or two like every
       // start tried before it.
       return {
-        net, ghostStart: ghostsOn('den'), playerStarts: ['hub'],
+        net, ghostStart: ghostsOn('den'), dotStart: dotsOf(net),
+        playerStarts: ['hub'],
         underpass: [
           't_nwc_esc', 't_swc_esc', 't_nec_esc', 't_sec_esc', 't_mid_home',
           't_rst',
@@ -636,7 +664,7 @@ The grid map is a test fixture rather than a playable level — the 10×10
 topology is too dense for fun gameplay but covers properties the playable
 maps cannot: 101 places, four fork junctions at quadrant centres, a join
 room reachable only by two converging tokens, a non-default nodeRadius of
-12, and hasDot=false on the start place. It exists to give the claim layer
+12, and no dot on the start place. It exists to give the claim layer
 and the PNML IO module a large, structurally rich net to work with.
 
     function makeGridMap(): GameNet {
@@ -722,7 +750,8 @@ and the PNML IO module a large, structurally rich net to work with.
 
       // Ghost starts at g4_5, centre-right
       return {
-        net, ghostStart: ghostsOn('g4_5'), playerStarts: ['g0_0'], nodeRadius: 12,
+        net, ghostStart: ghostsOn('g4_5'), dotStart: dotsOf(net),
+        playerStarts: ['g0_0'], nodeRadius: 12,
       };
     }
 
@@ -730,6 +759,8 @@ and the PNML IO module a large, structurally rich net to work with.
     makeClassicMap().net.places.size === 7
     makeClassicMap().net.transitions.size === 8
     makeClassicMap().playerStarts.includes('c')
+    markingTotal(makeClassicMap().dotStart) === 6
+    tokenCount(makeClassicMap().dotStart, 'c') === 0
 
 ~example
     makeSplitMap().net.places.size === 6
@@ -750,6 +781,7 @@ and the PNML IO module a large, structurally rich net to work with.
     transitionsForPlace(makeCircuitMap().net, 'ne').length === 2
     underpassArcIds(makeCircuitMap()).size === 8
     underpassArcIds(makeClassicMap()).size === 0
+    markingTotal(makeCircuitMap().dotStart) === 8
 
 ~example
     makeMandalaMap().net.places.size === 19
@@ -758,6 +790,8 @@ and the PNML IO module a large, structurally rich net to work with.
     inputArcs(makeMandalaMap().net, 't_join').length === 2
     makeMandalaMap().playerStarts.includes('hub')
     underpassArcIds(makeMandalaMap()).size === 20
+    markingTotal(makeMandalaMap().dotStart) === 14
+    tokenCount(makeMandalaMap().dotStart, 'den') === 0
 
 ~example
     _mandalaFullTraversal().atGoal === 1
@@ -768,6 +802,7 @@ and the PNML IO module a large, structurally rich net to work with.
     makeGridMap().net.transitions.size === 179
     makeGridMap().playerStarts.includes('g0_0')
     makeGridMap().nodeRadius === 12
+    markingTotal(makeGridMap().dotStart) === 100
 
 The grid map is excluded below — it's a dense 10x10 test fixture, not a
 map meant to read clearly on screen, and its tight spacing (80px between

@@ -1,13 +1,16 @@
 #Game State
 
 The game state holds everything that changes during play: where the chompers
-are (the player marking), where the ghosts are (the ghost marking), the set
-of places that still have dots, the score, and the number of lives remaining.
+are (the player marking), where the ghosts are (the ghost marking), where the
+dots still are (the dot marking), the score, and the number of lives remaining.
 
-Chompers and ghosts are both Petri net tokens but tracked in separate markings.
-This keeps the net semantics clean — each population fires independently — and
-makes it easy to check collisions (a place where a chomper and ghost both have
-tokens is a collision).
+Chompers, ghosts and dots are all Petri net tokens over the one net, tracked in
+separate markings. They differ in what changes them: a chomper moves when the
+player fires a transition, a ghost when a ghost turn does, and a dot never
+moves at all — it is consumed when a chomper arrives and is not put back when
+a life is lost. Keeping them apart keeps the net semantics clean — each
+population fires independently — and makes it easy to check collisions (a
+place where a chomper and ghost both have tokens is a collision).
 
 A map may declare multiple playerStarts in its #Game Map definition, placing
 one chomper token at each start place when the game initialises. All start tokens are also
@@ -18,15 +21,16 @@ maps expose fork-join coordination from the very first move.
       gn: GameNet;
       chompers: Marking;     // player's tokens
       ghosts: Marking;       // ghost tokens
-      dots: Set<string>;     // place ids that still have dots
+      dots: Marking;         // dots still to eat, per place
       score: number;
       lives: number;
     }
 
-Both kinds of token start as a mark on a place: chompers on playerStarts
-(with a count from startMarkings), ghosts from the ghostStart marking.
-Dealing them is shared between the initial deal and a post-death reset, so
-both read the exact same start rules from the #Game Map.
+Chompers start as a mark on a place: playerStarts, with a count from
+startMarkings. Ghosts and dots start as the ghostStart and dotStart markings.
+Dealing chompers and ghosts is shared between the initial deal and a
+post-death reset, so both read the exact same start rules from the #Game Map;
+dots are dealt once, since a reset does not restore them.
 
     function spawnChompers(gn: GameNet): Marking {
       const chompers = emptyMarking();
@@ -48,26 +52,26 @@ both read the exact same start rules from the #Game Map.
       const chompers = spawnChompers(gn);
       const ghosts = spawnGhosts(gn);
 
-      const dots = new Set(
-        [...gn.net.places.values()]
-          .filter(p => (p as GamePlace).hasDot)
-          .map(p => p.id)
-      );
+      const dots = emptyMarking();
+      for (const [placeId, count] of gn.dotStart) {
+        markingAddTokens(dots, placeId, count);
+      }
 
       return { gn, chompers, ghosts, dots, score: 0, lives };
     }
 
 ##Dot Eating and Scoring
 
-When a chomper enters a place that has a dot, the dot is removed and the
-score increases. This happens as a side-effect of firing a transition — the
-arrival place is checked after each fire.
+When a chomper is in a place that has dots, every dot there is removed and the
+score rises by ten for each. This happens as a side-effect of firing a
+transition — the arrival place is checked after each fire.
 
     function eatDots(state: GameState): void {
       for (const [placeId, count] of state.chompers) {
-        if (count > 0 && state.dots.has(placeId)) {
-          state.dots.delete(placeId);
-          state.score += 10;
+        const here = tokenCount(state.dots, placeId);
+        if (count > 0 && here > 0) {
+          markingRemoveTokens(state.dots, placeId, here);
+          state.score += 10 * here;
         }
       }
     }
@@ -139,18 +143,17 @@ hang, and teaches the concept the same way collisions teach "the ghost ate
 you": by naming the Petri-net event that just happened.
 
     function isDeadlocked(state: GameState): boolean {
-      const total = [...state.chompers.values()].reduce((a, b) => a + b, 0);
-      if (total === 0) return false;
+      if (markingTotal(state.chompers) === 0) return false;
       return enabledTransitions(state.gn.net, state.chompers).length === 0;
     }
 
 ##Win and Lose Conditions
 
-The player wins when all dots have been eaten. The player loses when lives
+The player wins when the dot marking is empty. The player loses when lives
 reach zero.
 
     function isWon(state: GameState): boolean {
-      return state.dots.size === 0;
+      return markingTotal(state.dots) === 0;
     }
 
     function isLost(state: GameState): boolean {
@@ -167,7 +170,7 @@ The examples below use the circuit map as a representative multi-place net.
       markingAddTokens(st.chompers, 'nw', 1);
       markingRemoveTokens(st.chompers, 'depot', 1);
       eatDots(st);
-      return { dotsGone: !st.dots.has('nw'), score: st.score };
+      return { dotsGone: tokenCount(st.dots, 'nw') === 0, score: st.score };
     }
 
     function _testCollision(): boolean {
@@ -231,11 +234,11 @@ own, unlike the corridor places.
 ~example
     tokenCount(_s0.chompers, 'depot') === 1
     !isDeadlocked(_s0)
-    _s0.dots.has('nw')
-    _s0.dots.has('nn')
-    _s0.dots.has('ne')
-    _s0.dots.has('sw')
-    !_s0.dots.has('depot')
+    tokenCount(_s0.dots, 'nw') === 1
+    tokenCount(_s0.dots, 'nn') === 1
+    tokenCount(_s0.dots, 'ne') === 1
+    tokenCount(_s0.dots, 'sw') === 1
+    tokenCount(_s0.dots, 'depot') === 0
     _s0.score === 0
     _s0.lives === 3
     !isWon(_s0)

@@ -30,7 +30,7 @@ Mark exactly one place with `<playerStart/>` or multiple places with `<initialMa
 
 ## Suppressing Dots
 
-By default, each place has a dot. This can be suppressed with `<hasDot>false</hasDot>`.
+By default, each place has one dot. Put a count in a `<dots>` element in the place's tool-specific block to change that: `<dots>0</dots>` removes the dot, and `<dots>3</dots>` puts three dots there. Eating a place's dots scores ten for each.
 
 ## Sharing Maps
 
