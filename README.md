@@ -1,8 +1,8 @@
 # pn-chomper
 
-PN Chomper is a browser puzzle game where you eat dots, go through open doorways, and run away from ghosts. [Try it here](https://adamburkeware.net/games/pn-chomper/latest/).
+Petri Net Chomper is a browser puzzle game where you eat dots, go through open doorways, and run away from ghosts. [Try it here](https://adamburkeware.net/games/pn-chomper/latest/).
 
-The map is a Petri net and the player controls the token. It's intended as casual fun and a learning aid for students. 
+The map is a Petri net and the player controls the tokens. Other colour tokens represent ghosts, dots, and so on. It's intended as casual fun and a learning aid for students. 
 
 
 # Maps
