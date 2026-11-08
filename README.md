@@ -32,7 +32,7 @@ A ghost starts on any place with a `tokens` element for the colour `ghost` in it
 
 ## Dots
 
-By default, each place has one dot. A `tokens` element for the colour `dot` changes that: `0` removes the dot and `3` puts three dots there. Eating a place's dots scores ten for each.
+By default, each place has one dot. A `tokens` element for the colour `dot` changes that: `0` removes the dot and `3` puts three dots there. 
 
 ```xml
 <tokens colour="dot">0</tokens>
